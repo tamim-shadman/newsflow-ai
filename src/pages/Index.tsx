@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useCallback, useMemo, useRef } from "react";
 import { useQuery } from "@tanstack/react-query";
 import {
   Newspaper,
@@ -71,6 +71,11 @@ const Index = () => {
   const [viewCounts] = useState<Map<string, string>>(new Map());
   const [loadingSummary, setLoadingSummary] = useState<string | null>(null);
   const [summaries, setSummaries] = useState<Map<string, string>>(new Map());
+  
+  // Lazy loading state
+  const [displayCount, setDisplayCount] = useState(6); // Show 1/5th initially (30 articles / 5 = 6)
+  const loadMoreRef = useRef<HTMLDivElement>(null);
+  const [isLoadingMore, setIsLoadingMore] = useState(false);
 
   const categoryThemes: Record<string, CategoryTheme> = {
     all: {
@@ -160,26 +165,64 @@ const Index = () => {
       if (debouncedSearch) {
         return await searchNews(debouncedSearch);
       }
-      return await fetchNewsByCategory(activeCategory, 30);
+      // Fetch more articles for lazy loading (50 instead of 30)
+      return await fetchNewsByCategory(activeCategory, 50);
     },
-    staleTime: 5 * 60 * 1000, // 5 minutes
-    refetchInterval: 10 * 60 * 1000, // Refetch every 10 minutes
+    staleTime: 2 * 60 * 60 * 1000, // 2 hours (match cache TTL)
+    refetchInterval: 2 * 60 * 60 * 1000, // Refetch every 2 hours (7200000 ms)
+    refetchOnWindowFocus: false, // Don't refetch on tab focus
+    refetchOnReconnect: false, // Don't refetch on reconnect
+  });
+
+  // Fetch trending articles (2 from each category)
+  const { data: trendingData, isLoading: trendingLoading } = useQuery({
+    queryKey: ["trending-from-categories"],
+    queryFn: async (): Promise<Array<NewsAPIArticle & { _category: CategoryType }>> => {
+      const categories: CategoryType[] = ["technology", "business", "sports", "health", "entertainment", "world"];
+      const promises = categories.map(cat => fetchNewsByCategory(cat, 2));
+      const results = await Promise.all(promises);
+      
+      // Flatten and return all articles
+      const allTrending: Array<NewsAPIArticle & { _category: CategoryType }> = [];
+      results.forEach((articles, index) => {
+        if (articles && articles.length > 0) {
+          // Take first 2 from each category
+          const categoryArticles = articles.slice(0, 2).map(article => ({
+            ...article,
+            // Store the category for proper display
+            _category: categories[index]
+          }));
+          allTrending.push(...categoryArticles);
+        }
+      });
+      
+      return allTrending;
+    },
+    staleTime: 2 * 60 * 60 * 1000, // 2 hours
+    refetchInterval: 2 * 60 * 60 * 1000, // Refetch every 2 hours
+    refetchOnWindowFocus: false,
+    refetchOnReconnect: false,
+    enabled: activeCategory === "trending", // Only fetch when trending is active
   });
 
   // Fetch featured news from all categories (1 from each)
   const { data: featuredData, isLoading: featuredLoading } = useQuery({
     queryKey: ["featured-all-categories"],
     queryFn: () => fetchFeaturedFromAllCategories(),
-    staleTime: 5 * 60 * 1000,
-    refetchInterval: 10 * 60 * 1000,
+    staleTime: 2 * 60 * 60 * 1000, // 2 hours
+    refetchInterval: 2 * 60 * 60 * 1000, // Refetch every 2 hours
+    refetchOnWindowFocus: false,
+    refetchOnReconnect: false,
   });
 
   // Fetch breaking news for ticker
   const { data: breakingNewsData } = useQuery({
     queryKey: ["breaking-news"],
     queryFn: () => fetchBreakingNews(15),
-    staleTime: 3 * 60 * 1000, // 3 minutes
-    refetchInterval: 5 * 60 * 1000, // Refetch every 5 minutes
+    staleTime: 2 * 60 * 60 * 1000, // 2 hours
+    refetchInterval: 2 * 60 * 60 * 1000, // Refetch every 2 hours
+    refetchOnWindowFocus: false,
+    refetchOnReconnect: false,
   });
 
   // Debounce search query
@@ -234,11 +277,25 @@ const Index = () => {
       })
     : [];
 
-  const newsArticles: NewsArticle[] = newsData
-    ? newsData.map((article) => convertToNewsArticle(article, activeCategory))
-    : [];
+  // Use trending data when in trending category, otherwise use regular news data
+  const currentNewsData = activeCategory === "trending" ? trendingData : newsData;
+  
+  const newsArticles: NewsArticle[] = useMemo(() => {
+    if (!currentNewsData) return [];
+    
+    return currentNewsData.map((article: NewsAPIArticle & { _category?: CategoryType }) => {
+      // For trending, use the stored category
+      const category = article._category || activeCategory;
+      return convertToNewsArticle(article, category);
+    });
+  }, [currentNewsData, activeCategory, convertToNewsArticle]);
 
-  const filteredNews = newsArticles;
+  // Lazy loaded articles (only show displayCount articles)
+  const displayedArticles = useMemo(() => {
+    return newsArticles.slice(0, displayCount);
+  }, [newsArticles, displayCount]);
+  
+  const hasMore = displayCount < newsArticles.length;
 
   const tickerNews = breakingNewsData || [
     "Loading latest breaking news from around the world...",
@@ -248,13 +305,41 @@ const Index = () => {
   // Enhance articles with LLM when data loads (optimized - only enhance first 3)
   useEffect(() => {
     const enhanceNews = async () => {
-      if (newsData && newsData.length > 0) {
-        const enhanced = await enhanceArticlesBatch(newsData.slice(0, 3), 3);
+      if (currentNewsData && currentNewsData.length > 0) {
+        const enhanced = await enhanceArticlesBatch(currentNewsData.slice(0, 3), 3);
         setEnhancedArticles(enhanced);
       }
     };
     enhanceNews();
-  }, [newsData]);
+  }, [currentNewsData]);
+
+  // Intersection Observer for lazy loading
+  useEffect(() => {
+    if (!loadMoreRef.current || !hasMore || isLoadingMore) return;
+
+    const observer = new IntersectionObserver(
+      (entries) => {
+        if (entries[0].isIntersecting) {
+          setIsLoadingMore(true);
+          // Simulate loading delay for smooth UX
+          setTimeout(() => {
+            setDisplayCount(prev => Math.min(prev + 6, newsArticles.length));
+            setIsLoadingMore(false);
+          }, 500);
+        }
+      },
+      { threshold: 0.1, rootMargin: "200px" }
+    );
+
+    observer.observe(loadMoreRef.current);
+
+    return () => observer.disconnect();
+  }, [hasMore, isLoadingMore, newsArticles.length]);
+
+  // Reset display count when category changes
+  useEffect(() => {
+    setDisplayCount(6);
+  }, [activeCategory, debouncedSearch]);
 
   // Auto-rotate featured carousel
   useEffect(() => {
@@ -394,23 +479,23 @@ const Index = () => {
         </div>
       </div>
 
-      {/* Live News Ticker */}
+      {/* Live News Ticker - Responsive */}
       <div className="relative z-10 bg-black/80 border-b border-white/10 overflow-hidden">
         <div className="flex items-center">
           <div
-            className={`px-6 py-3 bg-gradient-to-r ${theme.accent} flex items-center space-x-2 shrink-0`}
+            className={`px-3 sm:px-6 py-2 sm:py-3 bg-gradient-to-r ${theme.accent} flex items-center space-x-1 sm:space-x-2 shrink-0`}
           >
-            <Zap className="w-5 h-5 text-white animate-pulse" />
-            <span className="text-white font-bold text-sm whitespace-nowrap">
-              BREAKING NEWS
+            <Zap className="w-4 h-4 sm:w-5 sm:h-5 text-white animate-pulse" />
+            <span className="text-white font-bold text-xs sm:text-sm whitespace-nowrap">
+              BREAKING
             </span>
           </div>
-          <div className="flex-1 overflow-hidden py-3">
+          <div className="flex-1 overflow-hidden py-2 sm:py-3">
             <div className="flex animate-scroll">
               {[...tickerNews, ...tickerNews].map((news, idx) => (
                 <span
                   key={idx}
-                  className="text-gray-200 text-sm mx-8 whitespace-nowrap font-medium"
+                  className="text-gray-200 text-xs sm:text-sm mx-4 sm:mx-8 whitespace-nowrap font-medium"
                 >
                   <span className="text-red-400 mr-2">●</span>
                   {news}
@@ -423,28 +508,29 @@ const Index = () => {
 
       {/* Glassmorphic Header */}
       <header className="sticky z-10 top-0 backdrop-blur-2xl bg-black/50 border-b border-white/20 shadow-2xl">
-        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-5">
-          <div className="flex items-center justify-between gap-6">
-            <div className="flex items-center space-x-4">
+        <div className="max-w-7xl mx-auto px-3 sm:px-4 lg:px-8 py-3 sm:py-5">
+          <div className="flex items-center justify-between gap-2 sm:gap-4 lg:gap-6">
+            {/* Logo Section - Responsive */}
+            <div className="flex items-center space-x-2 sm:space-x-4">
               <div
-                className={`p-3 rounded-2xl bg-gradient-to-br ${theme.accent} shadow-2xl ${theme.glow} animate-pulse-glow`}
+                className={`p-2 sm:p-3 rounded-xl sm:rounded-2xl bg-gradient-to-br ${theme.accent} shadow-2xl ${theme.glow} animate-pulse-glow`}
               >
-                <Newspaper className="w-7 h-7 text-white" />
+                <Newspaper className="w-5 h-5 sm:w-7 sm:h-7 text-white" />
               </div>
               <div>
-                <h1 className="text-3xl font-black font-display bg-gradient-to-r from-white via-gray-100 to-white bg-clip-text text-transparent tracking-tight">
+                <h1 className="text-xl sm:text-2xl lg:text-3xl font-black font-display bg-gradient-to-r from-white via-gray-100 to-white bg-clip-text text-transparent tracking-tight">
                   NewsFlow AI
                 </h1>
                 <p
-                  className={`text-xs ${theme.text} font-semibold tracking-wider`}
+                  className={`text-[10px] sm:text-xs ${theme.text} font-semibold tracking-wider`}
                 >
                   LIVE 24/7
                 </p>
               </div>
             </div>
 
-            {/* Search Bar */}
-            <div className="hidden md:flex flex-1 max-w-md">
+            {/* Search Bar - Desktop Only, Mobile: Separate Row */}
+            <div className="hidden lg:flex flex-1 max-w-md">
               <div className="relative w-full">
                 <Search className="absolute left-4 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400" />
                 <Input
@@ -457,25 +543,40 @@ const Index = () => {
               </div>
             </div>
 
-            <div className="flex items-center space-x-3">
-              <button className="p-2 rounded-full bg-white/10 backdrop-blur-xl text-white hover:bg-white/20 transition-all border border-white/20">
-                <Bell className="w-5 h-5" />
+            {/* Action Buttons - Responsive */}
+            <div className="flex items-center space-x-2 sm:space-x-3">
+              <button className="p-1.5 sm:p-2 rounded-full bg-white/10 backdrop-blur-xl text-white hover:bg-white/20 transition-all border border-white/20">
+                <Bell className="w-4 h-4 sm:w-5 sm:h-5" />
               </button>
               <div
-                className={`px-5 py-2 rounded-full bg-gradient-to-r ${theme.accent} text-white text-sm font-bold shadow-xl ${theme.glow} animate-pulse-slow flex items-center space-x-2`}
+                className={`px-3 sm:px-5 py-1.5 sm:py-2 rounded-full bg-gradient-to-r ${theme.accent} text-white text-xs sm:text-sm font-bold shadow-xl ${theme.glow} animate-pulse-slow flex items-center space-x-1 sm:space-x-2`}
               >
-                <div className="w-2 h-2 bg-white rounded-full animate-ping" />
-                <span className="hidden sm:inline">LIVE</span>
+                <div className="w-1.5 h-1.5 sm:w-2 sm:h-2 bg-white rounded-full animate-ping" />
+                <span>LIVE</span>
               </div>
+            </div>
+          </div>
+
+          {/* Mobile Search Bar */}
+          <div className="lg:hidden mt-3">
+            <div className="relative w-full">
+              <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400" />
+              <Input
+                type="text"
+                placeholder="Search news..."
+                value={searchQuery}
+                onChange={(e) => setSearchQuery(e.target.value)}
+                className="w-full pl-10 pr-4 py-2 bg-white/10 border-white/20 text-white placeholder:text-gray-400 focus:bg-white/15 focus:border-white/40 rounded-full text-sm"
+              />
             </div>
           </div>
         </div>
       </header>
 
-      {/* Category Navigation */}
-      <nav className="sticky z-10 top-[89px] backdrop-blur-2xl bg-black/40 border-b border-white/20 shadow-xl">
-        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
-          <div className="flex space-x-3 overflow-x-auto py-5 scrollbar-hide">
+      {/* Category Navigation - Responsive & Touch-Friendly */}
+      <nav className="sticky z-10 top-[120px] sm:top-[89px] backdrop-blur-2xl bg-black/40 border-b border-white/20 shadow-xl">
+        <div className="max-w-7xl mx-auto px-2 sm:px-4 lg:px-8">
+          <div className="flex space-x-2 sm:space-x-3 overflow-x-auto py-3 sm:py-5 scrollbar-hide scroll-smooth">
             {categories.map((cat) => {
               const Icon = cat.icon;
               const isActive = activeCategory === cat.id;
@@ -483,19 +584,19 @@ const Index = () => {
                 <button
                   key={cat.id}
                   onClick={() => handleCategoryChange(cat.id)}
-                  className={`flex items-center space-x-2 px-6 py-3 rounded-2xl font-bold whitespace-nowrap transition-all duration-300 transform hover:scale-110 hover:-translate-y-1 ${
+                  className={`flex items-center space-x-1.5 sm:space-x-2 px-3 sm:px-6 py-2 sm:py-3 rounded-xl sm:rounded-2xl font-bold whitespace-nowrap transition-all duration-300 transform hover:scale-105 sm:hover:scale-110 active:scale-95 ${
                     isActive
                       ? `bg-gradient-to-r ${categoryThemes[cat.id].accent} text-white shadow-2xl ${categoryThemes[cat.id].glow} scale-105`
                       : "bg-white/10 text-gray-300 hover:bg-white/20 border border-white/10"
                   }`}
                 >
                   <Icon
-                    className={`w-5 h-5 ${
+                    className={`w-4 h-4 sm:w-5 sm:h-5 ${
                       isActive ? "animate-bounce-subtle" : ""
                     }`}
                   />
-                  <span className="text-sm">{cat.name}</span>
-                  {isActive && <Zap className="w-4 h-4 animate-pulse" />}
+                  <span className="text-xs sm:text-sm">{cat.name}</span>
+                  {isActive && <Zap className="w-3 h-3 sm:w-4 sm:h-4 animate-pulse" />}
                 </button>
               );
             })}
@@ -503,24 +604,24 @@ const Index = () => {
         </div>
       </nav>
 
-      {/* Main Content */}
-      <main className="relative z-10 max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-10">
-        {/* Featured Carousel */}
-        <div className="mb-16">
-          <div className="flex items-center justify-between mb-8">
+      {/* Main Content - Responsive Padding */}
+      <main className="relative z-10 max-w-7xl mx-auto px-3 sm:px-4 lg:px-8 py-6 sm:py-10">
+        {/* Featured Carousel - Responsive */}
+        <div className="mb-10 sm:mb-16">
+          <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between mb-6 sm:mb-8 gap-4">
             <div>
               <h2
-                className={`text-4xl font-black font-display bg-gradient-to-r ${theme.accent} bg-clip-text text-transparent flex items-center`}
+                className={`text-2xl sm:text-3xl lg:text-4xl font-black font-display bg-gradient-to-r ${theme.accent} bg-clip-text text-transparent flex items-center`}
               >
                 <div
-                  className={`p-2 rounded-xl bg-gradient-to-br ${theme.accent} mr-4 animate-pulse-glow`}
+                  className={`p-1.5 sm:p-2 rounded-lg sm:rounded-xl bg-gradient-to-br ${theme.accent} mr-2 sm:mr-4 animate-pulse-glow`}
                 >
-                  <TrendingUp className="w-8 h-8 text-white" />
+                  <TrendingUp className="w-5 h-5 sm:w-6 sm:h-6 lg:w-8 lg:h-8 text-white" />
                 </div>
-                Top Stories from Every Category
+                <span className="text-xl sm:text-3xl lg:text-4xl">Top Stories</span>
               </h2>
-              <p className="text-gray-400 text-sm mt-2 ml-16">
-                Featured: Technology • Business • Sports • Health • Entertainment • World
+              <p className="text-gray-400 text-xs sm:text-sm mt-2 ml-8 sm:ml-12 lg:ml-16">
+                <span className="hidden sm:inline">Featured: </span>Tech • Business • Sports • Health • Entertainment • World
               </p>
             </div>
             {featuredNews.length > 0 && (
@@ -537,7 +638,7 @@ const Index = () => {
             <FeaturedSkeleton />
           ) : featuredNews.length > 0 ? (
             <div className="relative group">
-              <div className="relative h-[550px] rounded-3xl overflow-hidden shadow-2xl ring-2 ring-white/10">
+              <div className="relative h-[400px] sm:h-[500px] lg:h-[550px] rounded-2xl sm:rounded-3xl overflow-hidden shadow-2xl ring-2 ring-white/10">
                 {featuredNews.map((news, index) => (
                   <div
                     key={news.id}
@@ -574,47 +675,47 @@ const Index = () => {
                       ))}
                     </div>
 
-                    <div className="absolute bottom-0 left-0 right-0 p-10">
-                      <div className="flex items-center flex-wrap gap-3 mb-5">
+                    <div className="absolute bottom-0 left-0 right-0 p-4 sm:p-6 lg:p-10">
+                      <div className="flex items-center flex-wrap gap-2 sm:gap-3 mb-3 sm:mb-5">
                         {news.isTrending && (
-                          <span className="px-3 py-1 rounded-full text-xs font-bold bg-gradient-to-r from-orange-500 to-red-500 text-white shadow-xl shadow-orange-500/50 animate-pulse-glow flex items-center space-x-1">
-                            <Flame className="w-3 h-3" />
+                          <span className="px-2 sm:px-3 py-1 rounded-full text-[10px] sm:text-xs font-bold bg-gradient-to-r from-orange-500 to-red-500 text-white shadow-xl shadow-orange-500/50 animate-pulse-glow flex items-center space-x-1">
+                            <Flame className="w-2.5 h-2.5 sm:w-3 sm:h-3" />
                             <span>TRENDING</span>
                           </span>
                         )}
                         <span
-                          className={`px-5 py-2 rounded-full text-base font-black bg-gradient-to-r ${
+                          className={`px-3 sm:px-5 py-1 sm:py-2 rounded-full text-xs sm:text-base font-black bg-gradient-to-r ${
                             categoryThemes[news.category].accent
                           } text-white shadow-2xl ${
                             categoryThemes[news.category].glow
-                          } animate-pulse-glow uppercase tracking-wide flex items-center gap-2`}
+                          } animate-pulse-glow uppercase tracking-wide flex items-center gap-1 sm:gap-2`}
                         >
                           {(() => {
                             const CategoryIcon = getCategoryIcon(news.category);
-                            return <CategoryIcon className="w-5 h-5" />;
+                            return <CategoryIcon className="w-3 h-3 sm:w-5 sm:h-5" />;
                           })()}
-                          {news.category}
+                          <span className="hidden sm:inline">{news.category}</span>
                         </span>
-                        <div className="flex items-center space-x-2 text-gray-200 bg-black/60 backdrop-blur-xl px-4 py-2 rounded-full">
-                          <Clock className="w-4 h-4" />
-                          <span className="text-sm font-semibold">
+                        <div className="flex items-center space-x-1 sm:space-x-2 text-gray-200 bg-black/60 backdrop-blur-xl px-2 sm:px-4 py-1 sm:py-2 rounded-full">
+                          <Clock className="w-3 h-3 sm:w-4 sm:h-4" />
+                          <span className="text-xs sm:text-sm font-semibold">
                             {news.time}
                           </span>
                         </div>
-                        <div className="flex items-center space-x-2 text-gray-200 bg-black/60 backdrop-blur-xl px-4 py-2 rounded-full">
+                        <div className="hidden sm:flex items-center space-x-2 text-gray-200 bg-black/60 backdrop-blur-xl px-4 py-2 rounded-full">
                           <span className="text-sm font-semibold">
                             {news.readTime}
                           </span>
                         </div>
                         {news.source && (
-                          <div className="flex items-center space-x-2 text-gray-200 bg-black/60 backdrop-blur-xl px-4 py-2 rounded-full">
+                          <div className="hidden md:flex items-center space-x-2 text-gray-200 bg-black/60 backdrop-blur-xl px-4 py-2 rounded-full">
                             <span className="text-sm font-semibold">
                               {news.source}
                             </span>
                           </div>
                         )}
                       </div>
-                      <h3 className="text-5xl font-black font-display text-white mb-4 leading-tight drop-shadow-2xl">
+                      <h3 className="text-2xl sm:text-3xl lg:text-5xl font-black font-display text-white mb-2 sm:mb-4 leading-tight drop-shadow-2xl line-clamp-2 sm:line-clamp-none">
                         {news.title}
                       </h3>
                       <p className="text-gray-200 text-xl mb-6 max-w-3xl">
@@ -660,28 +761,30 @@ const Index = () => {
 
               {featuredNews.length > 1 && (
                 <>
+                  {/* Navigation Buttons - Responsive */}
                   <button
                     onClick={prevSlide}
-                    className={`absolute left-6 top-1/2 -translate-y-1/2 p-4 rounded-full bg-gradient-to-r ${theme.accent} text-white opacity-0 group-hover:opacity-100 transition-all hover:scale-110 shadow-2xl ${theme.glow}`}
+                    className={`absolute left-2 sm:left-6 top-1/2 -translate-y-1/2 p-2 sm:p-4 rounded-full bg-gradient-to-r ${theme.accent} text-white opacity-80 sm:opacity-0 group-hover:opacity-100 transition-all hover:scale-110 active:scale-95 shadow-2xl ${theme.glow}`}
                   >
-                    <ChevronLeft className="w-6 h-6" />
+                    <ChevronLeft className="w-4 h-4 sm:w-6 sm:h-6" />
                   </button>
                   <button
                     onClick={nextSlide}
-                    className={`absolute right-6 top-1/2 -translate-y-1/2 p-4 rounded-full bg-gradient-to-r ${theme.accent} text-white opacity-0 group-hover:opacity-100 transition-all hover:scale-110 shadow-2xl ${theme.glow}`}
+                    className={`absolute right-2 sm:right-6 top-1/2 -translate-y-1/2 p-2 sm:p-4 rounded-full bg-gradient-to-r ${theme.accent} text-white opacity-80 sm:opacity-0 group-hover:opacity-100 transition-all hover:scale-110 active:scale-95 shadow-2xl ${theme.glow}`}
                   >
-                    <ChevronRight className="w-6 h-6" />
+                    <ChevronRight className="w-4 h-4 sm:w-6 sm:h-6" />
                   </button>
 
-                  <div className="absolute bottom-6 left-1/2 -translate-x-1/2 flex space-x-3">
+                  {/* Carousel Indicators - Responsive */}
+                  <div className="absolute bottom-4 sm:bottom-6 left-1/2 -translate-x-1/2 flex space-x-2 sm:space-x-3">
                     {featuredNews.map((_, index) => (
                       <button
                         key={index}
                         onClick={() => setCurrentSlide(index)}
                         className={`transition-all duration-300 rounded-full ${
                           index === currentSlide
-                            ? `bg-gradient-to-r ${theme.accent} w-12 h-3 shadow-xl ${theme.glow}`
-                            : "bg-white/40 w-3 h-3 hover:bg-white/60"
+                            ? `bg-gradient-to-r ${theme.accent} w-8 sm:w-12 h-2 sm:h-3 shadow-xl ${theme.glow}`
+                            : "bg-white/40 w-2 sm:w-3 h-2 sm:h-3 hover:bg-white/60"
                         }`}
                       />
                     ))}
@@ -694,7 +797,7 @@ const Index = () => {
           )}
         </div>
 
-        {/* News Grid */}
+        {/* News Grid - Responsive */}
         <div
           className={`transition-all duration-500 ${
             isTransitioning
@@ -702,25 +805,25 @@ const Index = () => {
               : "opacity-100 transform scale-100"
           }`}
         >
-          <div className="flex items-center justify-between mb-8">
+          <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between mb-6 sm:mb-8 gap-3">
             <h2
-              className={`text-4xl font-black font-display bg-gradient-to-r ${theme.accent} bg-clip-text text-transparent`}
+              className={`text-2xl sm:text-3xl lg:text-4xl font-black font-display bg-gradient-to-r ${theme.accent} bg-clip-text text-transparent`}
             >
               {debouncedSearch
-                ? `Search Results for "${debouncedSearch}"`
+                ? `Search: "${debouncedSearch}"`
                 : categories.find((c) => c.id === activeCategory)?.name}
             </h2>
             {newsArticles.length > 0 && (
               <div
-                className={`px-4 py-2 rounded-full bg-gradient-to-r ${theme.accent} bg-opacity-20 text-white font-semibold`}
+                className={`px-3 sm:px-4 py-1.5 sm:py-2 rounded-full bg-gradient-to-r ${theme.accent} bg-opacity-20 text-white text-sm sm:text-base font-semibold`}
               >
-                {newsArticles.length} Articles
+                {displayedArticles.length} / {newsArticles.length} Articles
               </div>
             )}
           </div>
 
-          {isLoading ? (
-            <NewsGridSkeleton count={9} />
+          {(isLoading || (activeCategory === "trending" && trendingLoading)) ? (
+            <NewsGridSkeleton count={6} />
           ) : error ? (
             <ErrorState
               message="Failed to load news articles. Please check your API configuration or try again later."
@@ -735,8 +838,9 @@ const Index = () => {
               }
             />
           ) : (
-            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-8">
-              {newsArticles.map((article, idx) => (
+            <>
+              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4 sm:gap-6 lg:gap-8">
+                {displayedArticles.map((article, idx) => (
                 <div
                   key={article.id}
                   onMouseEnter={() => setHoveredCard(article.id)}
@@ -748,13 +852,13 @@ const Index = () => {
                   }}
                 >
                   <div
-                    className={`relative overflow-hidden rounded-3xl backdrop-blur-2xl bg-white/5 border-2 transition-all duration-500 transform hover:scale-105 hover:-translate-y-2 shadow-xl hover:shadow-2xl ${
+                    className={`relative overflow-hidden rounded-2xl sm:rounded-3xl backdrop-blur-2xl bg-white/5 border-2 transition-all duration-500 transform hover:scale-105 active:scale-95 sm:hover:-translate-y-2 shadow-xl hover:shadow-2xl ${
                       hoveredCard === article.id
                         ? `border-white/40 ${theme.glow}`
                         : "border-white/10"
                     }`}
                   >
-                    <div className="relative h-56 overflow-hidden">
+                    <div className="relative h-48 sm:h-56 overflow-hidden">
                       <img
                         src={article.image}
                         alt={article.title}
@@ -763,6 +867,7 @@ const Index = () => {
                             ? "scale-110 rotate-2"
                             : "scale-100"
                         }`}
+                        loading="lazy"
                       />
                       <div
                         className={`absolute inset-0 bg-gradient-to-t transition-opacity duration-300 ${
@@ -778,28 +883,32 @@ const Index = () => {
                         } opacity-0 group-hover:opacity-50 transition-opacity duration-300 blur-2xl`}
                       />
 
-                      <div className="absolute top-4 right-4 flex flex-col space-y-2">
-                        {article.isTrending && (
-                          <span className="px-3 py-1 rounded-full text-xs font-bold bg-gradient-to-r from-orange-500 to-red-500 text-white shadow-xl shadow-orange-500/50 flex items-center space-x-1 animate-pulse-glow">
-                            <Flame className="w-3 h-3" />
+                      <div className="absolute top-2 sm:top-4 right-2 sm:right-4 flex flex-col space-y-1 sm:space-y-2">
+                        {(article.isTrending || activeCategory === "trending") && (
+                          <span className="px-2 sm:px-3 py-0.5 sm:py-1 rounded-full text-[10px] sm:text-xs font-bold bg-gradient-to-r from-orange-500 to-red-500 text-white shadow-xl shadow-orange-500/50 flex items-center space-x-1 animate-pulse-glow">
+                            <Flame className="w-2.5 h-2.5 sm:w-3 sm:h-3" />
                             <span>HOT</span>
                           </span>
                         )}
                         <span
-                          className={`px-4 py-2 rounded-full text-xs font-bold bg-gradient-to-r ${
+                          className={`px-2 sm:px-4 py-1 sm:py-2 rounded-full text-[10px] sm:text-xs font-bold bg-gradient-to-r ${
                             categoryThemes[article.category].accent
                           } text-white shadow-xl ${
                             categoryThemes[article.category].glow
-                          } backdrop-blur-xl transform group-hover:scale-110 transition-transform`}
+                          } backdrop-blur-xl transform group-hover:scale-110 transition-transform flex items-center space-x-1`}
                         >
-                          {article.category.toUpperCase()}
+                          {(() => {
+                            const CategoryIcon = getCategoryIcon(article.category);
+                            return <CategoryIcon className="w-3 h-3 sm:w-4 sm:h-4" />;
+                          })()}
+                          <span className="hidden sm:inline">{article.category.toUpperCase()}</span>
                         </span>
                       </div>
 
-                      <div className="absolute bottom-4 left-4 flex items-center space-x-3">
-                        <div className="flex items-center space-x-2 bg-black/70 backdrop-blur-xl px-3 py-2 rounded-full">
-                          <Eye className="w-4 h-4 text-white" />
-                          <span className="text-white text-xs font-bold">
+                      <div className="absolute bottom-2 sm:bottom-4 left-2 sm:left-4 flex items-center space-x-1.5 sm:space-x-3">
+                        <div className="flex items-center space-x-1 sm:space-x-2 bg-black/70 backdrop-blur-xl px-2 sm:px-3 py-1 sm:py-2 rounded-full">
+                          <Eye className="w-3 h-3 sm:w-4 sm:h-4 text-white" />
+                          <span className="text-white text-[10px] sm:text-xs font-bold">
                             {article.views}
                           </span>
                         </div>
@@ -808,7 +917,7 @@ const Index = () => {
                             e.stopPropagation();
                             alert("Article bookmarked!");
                           }}
-                          className="p-2 rounded-full bg-black/70 backdrop-blur-xl hover:bg-white/20 transition-all opacity-0 group-hover:opacity-100"
+                          className="hidden sm:block p-2 rounded-full bg-black/70 backdrop-blur-xl hover:bg-white/20 transition-all opacity-0 group-hover:opacity-100"
                         >
                           <Bookmark className="w-4 h-4 text-white" />
                         </button>
@@ -824,9 +933,9 @@ const Index = () => {
                               alert("Share link copied!");
                             }
                           }}
-                          className="p-2 rounded-full bg-black/70 backdrop-blur-xl hover:bg-white/20 transition-all opacity-0 group-hover:opacity-100"
+                          className="p-1.5 sm:p-2 rounded-full bg-black/70 backdrop-blur-xl hover:bg-white/20 transition-all sm:opacity-0 group-hover:opacity-100"
                         >
-                          <Share2 className="w-4 h-4 text-white" />
+                          <Share2 className="w-3 h-3 sm:w-4 sm:h-4 text-white" />
                         </button>
                         <Popover>
                           <PopoverTrigger asChild>
@@ -835,7 +944,7 @@ const Index = () => {
                                 e.stopPropagation();
                                 handleSummarize(article.url);
                               }}
-                              className="p-2 rounded-full bg-black/70 backdrop-blur-xl hover:bg-gradient-to-r hover:from-purple-500 hover:to-pink-500 transition-all opacity-0 group-hover:opacity-100"
+                              className="hidden sm:block p-2 rounded-full bg-black/70 backdrop-blur-xl hover:bg-gradient-to-r hover:from-purple-500 hover:to-pink-500 transition-all opacity-0 group-hover:opacity-100"
                             >
                               {loadingSummary === article.url ? (
                                 <Loader2 className="w-4 h-4 text-white animate-spin" />
@@ -845,28 +954,28 @@ const Index = () => {
                             </button>
                           </PopoverTrigger>
                           <PopoverContent
-                            className="w-80 bg-black/95 backdrop-blur-xl border border-white/20 text-white p-4 z-50"
+                            className="w-72 sm:w-80 bg-black/95 backdrop-blur-xl border border-white/20 text-white p-3 sm:p-4 z-50"
                             onClick={(e) => e.stopPropagation()}
                             side="top"
                             align="end"
                           >
                             <div className="space-y-2">
-                              <div className="flex items-center space-x-2 mb-3">
-                                <FileText className="w-5 h-5 text-purple-400" />
-                                <h4 className="font-bold text-lg bg-gradient-to-r from-purple-400 to-pink-400 bg-clip-text text-transparent">
+                              <div className="flex items-center space-x-2 mb-2 sm:mb-3">
+                                <FileText className="w-4 h-4 sm:w-5 sm:h-5 text-purple-400" />
+                                <h4 className="font-bold text-base sm:text-lg bg-gradient-to-r from-purple-400 to-pink-400 bg-clip-text text-transparent">
                                   AI Summary
                                 </h4>
                               </div>
                               {loadingSummary === article.url ? (
-                                <div className="flex items-center justify-center py-8">
-                                  <Loader2 className="w-8 h-8 text-purple-400 animate-spin" />
+                                <div className="flex items-center justify-center py-6 sm:py-8">
+                                  <Loader2 className="w-6 h-6 sm:w-8 sm:h-8 text-purple-400 animate-spin" />
                                 </div>
                               ) : summaries.has(article.url) ? (
-                                <p className="text-gray-300 text-sm leading-relaxed">
+                                <p className="text-gray-300 text-xs sm:text-sm leading-relaxed">
                                   {summaries.get(article.url)}
                                 </p>
                               ) : (
-                                <p className="text-gray-400 text-sm italic">
+                                <p className="text-gray-400 text-xs sm:text-sm italic">
                                   Generating summary...
                                 </p>
                               )}
@@ -876,9 +985,9 @@ const Index = () => {
                       </div>
                     </div>
 
-                    <div className="p-6">
+                    <div className="p-4 sm:p-6">
                       <h3
-                        className={`text-xl font-bold font-display text-white mb-3 leading-tight transition-all duration-300 ${
+                        className={`text-base sm:text-xl font-bold font-display text-white mb-2 sm:mb-3 leading-tight transition-all duration-300 line-clamp-2 ${
                           hoveredCard === article.id
                             ? `bg-gradient-to-r ${theme.accent} bg-clip-text text-transparent`
                             : ""
@@ -886,14 +995,14 @@ const Index = () => {
                       >
                         {article.title}
                       </h3>
-                      <p className="text-gray-400 text-sm mb-4 line-clamp-2">
+                      <p className="text-gray-400 text-xs sm:text-sm mb-3 sm:mb-4 line-clamp-2">
                         {article.excerpt}
                       </p>
 
                       <div className="flex items-center justify-between">
-                        <div className="flex items-center space-x-3 text-xs">
+                        <div className="flex items-center space-x-2 sm:space-x-3 text-[10px] sm:text-xs">
                           <div className="flex items-center space-x-1">
-                            <Clock className={`w-4 h-4 ${theme.text}`} />
+                            <Clock className={`w-3 h-3 sm:w-4 sm:h-4 ${theme.text}`} />
                             <span className={`font-semibold ${theme.text}`}>
                               {article.time}
                             </span>
@@ -908,7 +1017,7 @@ const Index = () => {
                           )}
                         </div>
                         {article.source && (
-                          <span className="text-gray-500 text-xs">
+                          <span className="hidden sm:inline text-gray-500 text-xs">
                             Source: {article.source}
                           </span>
                         )}
@@ -922,43 +1031,80 @@ const Index = () => {
                 </div>
               ))}
             </div>
+            
+            {/* Lazy Loading Trigger & Load More Button */}
+            {hasMore && (
+              <div ref={loadMoreRef} className="mt-8 sm:mt-12 flex justify-center">
+                {isLoadingMore ? (
+                  <div className="flex flex-col items-center space-y-3 sm:space-y-4">
+                    <Loader2 className={`w-6 h-6 sm:w-8 sm:h-8 animate-spin bg-gradient-to-r ${theme.accent} bg-clip-text text-transparent`} />
+                    <p className="text-gray-400 text-xs sm:text-sm">Loading more articles...</p>
+                  </div>
+                ) : (
+                  <button
+                    onClick={() => {
+                      setIsLoadingMore(true);
+                      setTimeout(() => {
+                        setDisplayCount(prev => Math.min(prev + 6, newsArticles.length));
+                        setIsLoadingMore(false);
+                      }, 300);
+                    }}
+                    className={`group px-6 sm:px-8 py-3 sm:py-4 rounded-full bg-gradient-to-r ${theme.accent} text-white font-bold text-base sm:text-lg shadow-xl ${theme.glow} hover:shadow-2xl transform active:scale-95 hover:scale-105 transition-all duration-300 flex items-center space-x-2 sm:space-x-3`}
+                  >
+                    <span>Load More Articles</span>
+                    <ArrowRight className="w-4 h-4 sm:w-5 sm:h-5 group-hover:translate-x-1 transition-transform" />
+                  </button>
+                )}
+              </div>
+            )}
+            
+            {/* Show total loaded */}
+            {!hasMore && newsArticles.length > 6 && (
+              <div className="mt-8 sm:mt-12 text-center">
+                <div className={`inline-flex items-center space-x-2 px-4 sm:px-6 py-2 sm:py-3 rounded-full bg-gradient-to-r ${theme.accent} bg-opacity-20 text-white`}>
+                  <Sparkles className="w-4 h-4 sm:w-5 sm:h-5" />
+                  <span className="font-semibold text-xs sm:text-base">You've reached the end! All {newsArticles.length} articles loaded.</span>
+                </div>
+              </div>
+            )}
+          </>
           )}
         </div>
 
         {/* Newsletter Section */}
-        <div className="mt-20">
+        <div className="mt-12 sm:mt-16 lg:mt-20">
           <div
-            className={`relative overflow-hidden rounded-3xl bg-gradient-to-r ${theme.accent} p-12 shadow-2xl ${theme.glow}`}
+            className={`relative overflow-hidden rounded-2xl sm:rounded-3xl bg-gradient-to-r ${theme.accent} p-6 sm:p-10 lg:p-12 shadow-2xl ${theme.glow}`}
           >
             <div className="absolute inset-0 bg-black/20" />
             <div className="relative z-10 max-w-3xl mx-auto text-center">
-              <div className="inline-flex items-center justify-center p-3 rounded-2xl bg-white/20 backdrop-blur-xl mb-6">
-                <Bell className="w-8 h-8 text-white" />
+              <div className="inline-flex items-center justify-center p-2 sm:p-3 rounded-xl sm:rounded-2xl bg-white/20 backdrop-blur-xl mb-4 sm:mb-6">
+                <Bell className="w-6 h-6 sm:w-8 sm:h-8 text-white" />
               </div>
-              <h3 className="text-4xl font-black font-display text-white mb-4">
+              <h3 className="text-2xl sm:text-3xl lg:text-4xl font-black font-display text-white mb-3 sm:mb-4">
                 Never Miss a Story
               </h3>
-              <p className="text-xl text-white/90 mb-8">
+              <p className="text-base sm:text-lg lg:text-xl text-white/90 mb-6 sm:mb-8 px-4">
                 Get AI-enhanced news and exclusive updates delivered straight to
                 your inbox
               </p>
-              <div className="flex flex-col sm:flex-row gap-4 max-w-md mx-auto">
+              <div className="flex flex-col sm:flex-row gap-3 sm:gap-4 max-w-md mx-auto px-4 sm:px-0">
                 <Input
                   type="email"
                   placeholder="Enter your email"
                   value={email}
                   onChange={(e) => setEmail(e.target.value)}
                   onKeyPress={(e) => e.key === "Enter" && handleSubscribe()}
-                  className="flex-1 px-6 py-4 bg-white/20 border-white/30 text-white placeholder:text-white/70 focus:bg-white/30 focus:border-white rounded-full backdrop-blur-xl text-lg"
+                  className="flex-1 px-4 sm:px-6 py-3 sm:py-4 bg-white/20 border-white/30 text-white placeholder:text-white/70 focus:bg-white/30 focus:border-white rounded-full backdrop-blur-xl text-base sm:text-lg"
                 />
                 <Button
                   onClick={handleSubscribe}
-                  className="px-8 py-4 bg-white text-gray-900 hover:bg-gray-100 font-bold rounded-full text-lg shadow-xl"
+                  className="px-6 sm:px-8 py-3 sm:py-4 bg-white text-gray-900 hover:bg-gray-100 font-bold rounded-full text-base sm:text-lg shadow-xl active:scale-95 transition-transform"
                 >
                   Subscribe
                 </Button>
               </div>
-              <p className="text-sm text-white/70 mt-4">
+              <p className="text-xs sm:text-sm text-white/70 mt-3 sm:mt-4">
                 Join 100,000+ readers. Unsubscribe anytime.
               </p>
             </div>
@@ -967,22 +1113,22 @@ const Index = () => {
       </main>
 
       {/* Footer */}
-      <footer className="relative z-10 backdrop-blur-2xl bg-black/50 border-t border-white/20 mt-20 shadow-2xl">
-        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-12">
+      <footer className="relative z-10 backdrop-blur-2xl bg-black/50 border-t border-white/20 mt-12 sm:mt-16 lg:mt-20 shadow-2xl">
+        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8 sm:py-10 lg:py-12">
           <div className="text-center">
             <div
-              className={`inline-flex items-center space-x-3 mb-4 px-6 py-3 rounded-full bg-gradient-to-r ${theme.accent} shadow-2xl ${theme.glow}`}
+              className={`inline-flex items-center space-x-2 sm:space-x-3 mb-3 sm:mb-4 px-4 sm:px-6 py-2 sm:py-3 rounded-full bg-gradient-to-r ${theme.accent} shadow-2xl ${theme.glow}`}
             >
-              <Newspaper className="w-5 h-5 text-white" />
-              <span className="text-white font-bold font-display">
+              <Newspaper className="w-4 h-4 sm:w-5 sm:h-5 text-white" />
+              <span className="text-white text-sm sm:text-base font-bold font-display">
                 NewsFlow AI
               </span>
             </div>
-            <p className="text-gray-400 text-sm">Stay informed. Stay ahead.</p>
-            <p className="text-gray-500 text-xs mt-2">
+            <p className="text-gray-400 text-xs sm:text-sm">Stay informed. Stay ahead.</p>
+            <p className="text-gray-500 text-[10px] sm:text-xs mt-1.5 sm:mt-2">
               © 2025 NewsFlow AI. All rights reserved.
             </p>
-            <p className="text-gray-600 text-xs mt-1">
+            <p className="text-gray-600 text-[10px] sm:text-xs mt-0.5 sm:mt-1">
               Developed by Tamim Shadman
             </p>
           </div>

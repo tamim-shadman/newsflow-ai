@@ -24,31 +24,41 @@ interface GroqResponse {
 
 /**
  * Enhance a news article using LLM to make it more engaging and beautiful
+ * Now generates comprehensive summaries of the full article content
  * @param article - Original news article from NewsAPI
- * @returns Enhanced article with improved title, excerpt, and summary
+ * @returns Enhanced article with improved title, excerpt, and comprehensive summary
  */
 export async function enhanceArticleWithLLM(
   article: NewsAPIArticle
 ): Promise<EnhancedArticle> {
   try {
-    // Simplified prompt to reduce tokens
-    const prompt = `Enhance this news article:
-
+    // Build comprehensive prompt with all available content
+    const contentToSummarize = `
 Title: ${article.title}
 Description: ${article.description || "No description"}
+Full Content: ${article.content || article.description || "Limited content available"}
+Source: ${article.source.name}
+Author: ${article.author || "Unknown"}
+`.trim();
 
-Respond with JSON only:
+    const prompt = `You are a professional news editor. Create a comprehensive, concise summary of this entire news article.
+
+${contentToSummarize}
+
+Provide a JSON response with:
 {
-  "enhancedTitle": "compelling title max 80 chars",
-  "enhancedExcerpt": "2-sentence summary max 150 chars",
-  "summary": "3-4 sentence detailed summary",
-  "keyPoints": ["3-5 key points"]
-}`;
+  "enhancedTitle": "Compelling, clear title (max 80 chars)",
+  "enhancedExcerpt": "Hook sentence that captures the essence (max 150 chars)",
+  "summary": "Complete, detailed summary covering ALL key information, facts, quotes, and implications from the article. Write 4-6 sentences that capture the full story in a clear, professional manner.",
+  "keyPoints": ["5-7 specific key takeaways from the article with concrete details"]
+}
+
+Important: The summary should be comprehensive and cover the entire article, not just the headline.`;
 
     const messages: GroqMessage[] = [
       {
         role: "system",
-        content: "You are a news editor. Respond with valid JSON only.",
+        content: "You are an expert news editor who creates comprehensive, accurate summaries. Always respond with valid JSON only. Ensure summaries capture ALL important details from the source material.",
       },
       {
         role: "user",
@@ -61,8 +71,8 @@ Respond with JSON only:
       {
         model: MODEL,
         messages,
-        temperature: 0.7,
-        max_tokens: 500, // Reduced from 1000 to save quota
+        temperature: 0.5, // Lower temperature for more factual summaries
+        max_tokens: 800, // Increased for comprehensive summaries
       },
       IS_PRODUCTION
         ? {}
@@ -87,7 +97,7 @@ Respond with JSON only:
         enhancedTitle: article.title,
         originalExcerpt: article.description || "",
         enhancedExcerpt: article.description || "",
-        summary: article.description || "",
+        summary: article.content || article.description || "Summary unavailable.",
         keyPoints: [],
       };
     }
@@ -97,7 +107,7 @@ Respond with JSON only:
       enhancedTitle: enhanced.enhancedTitle || article.title,
       originalExcerpt: article.description || "",
       enhancedExcerpt: enhanced.enhancedExcerpt || article.description || "",
-      summary: enhanced.summary || article.description || "",
+      summary: enhanced.summary || article.content || article.description || "Summary unavailable.",
       keyPoints: enhanced.keyPoints || [],
     };
   } catch (error) {
@@ -109,7 +119,7 @@ Respond with JSON only:
       enhancedTitle: article.title,
       originalExcerpt: article.description || "",
       enhancedExcerpt: article.description || "",
-      summary: article.description || "",
+      summary: article.content || article.description || "Summary unavailable.",
       keyPoints: [],
     };
   }
