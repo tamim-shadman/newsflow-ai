@@ -302,16 +302,8 @@ export async function fetchFeaturedFromAllCategories(): Promise<NewsAPIArticle[]
     const cacheKey = 'featured_all_categories';
     const cached = getFromCache(cacheKey);
     if (cached) {
-      // Apply unique carousel URLs to cached data
-      console.log('✅ Using cached featured articles, adding unique carousel URLs');
-      return cached.map((article, index) => ({
-        ...article,
-        url: article.url.includes('?carousel=') 
-          ? article.url  // Already has carousel param
-          : article.url.includes('?')
-            ? `${article.url}&carousel=${index}`
-            : `${article.url}?carousel=${index}`
-      }));
+      console.log('✅ Using cached featured articles');
+      return cached;
     }
 
     console.log('🔄 Fetching featured articles from all categories...');
@@ -336,41 +328,25 @@ export async function fetchFeaturedFromAllCategories(): Promise<NewsAPIArticle[]
     const results = await Promise.all(promises);
 
     // Take the first (most recent/relevant) article from each category
-    // Add unique identifier to prevent all carousel items from opening same link
+    // Each category should return different articles with their own unique URLs
     results.forEach((articles, index) => {
       if (articles && articles.length > 0) {
         const article = articles[0];
         // Ensure the article has required fields
         if (article.title && article.url) {
-          // Make URL unique for each carousel item
-          const uniqueUrl = article.url.includes('?') 
-            ? `${article.url}&carousel=${index}` 
-            : `${article.url}?carousel=${index}`;
-          
-          console.log(`🔗 Carousel item ${index}: ${article.title.substring(0, 40)}... → ${uniqueUrl}`);
-          
-          featuredArticles.push({
-            ...article,
-            url: uniqueUrl
-          });
+          console.log(`🔗 Carousel item ${index}: ${article.title.substring(0, 40)}... → ${article.url}`);
+          featuredArticles.push(article);
         }
       }
     });
 
-    console.log(`✅ Fetched ${featuredArticles.length} featured articles with unique URLs`);
+    console.log(`✅ Fetched ${featuredArticles.length} featured articles from different categories`);
     console.log('📋 Carousel URLs:', featuredArticles.map((a, i) => `[${i}] ${a.url}`));
     
-    // If we have no articles, use static fallback
+    // If we have no articles, use static fallback (each category has unique articles)
     if (featuredArticles.length === 0) {
       console.log('🆘 Using complete static fallback for featured articles');
-      const fallbackArticles = categories.map((cat, index) => {
-        const articles = getFallbackNews(cat, 1);
-        // Make each fallback URL unique
-        return articles.map(article => ({
-          ...article,
-          url: `${article.url}?carousel=${index}`
-        }));
-      }).flat();
+      const fallbackArticles = categories.flatMap(cat => getFallbackNews(cat, 1));
       setCache(cacheKey, fallbackArticles.slice(0, 6));
       return fallbackArticles.slice(0, 6);
     }
@@ -385,27 +361,14 @@ export async function fetchFeaturedFromAllCategories(): Promise<NewsAPIArticle[]
     // Try to get from stale cache
     const staleCache = cache.get('featured_all_categories');
     if (staleCache) {
-      console.log('⚠️ Using stale cache for featured articles, adding unique URLs');
-      return staleCache.data.map((article: NewsAPIArticle, index: number) => ({
-        ...article,
-        url: article.url.includes('?carousel=') 
-          ? article.url
-          : article.url.includes('?')
-            ? `${article.url}&carousel=${index}`
-            : `${article.url}?carousel=${index}`
-      }));
+      console.log('⚠️ Using stale cache for featured articles');
+      return staleCache.data;
     }
     
-    // Last resort: static fallback with unique URLs
+    // Last resort: static fallback (each category has different articles with unique URLs)
     console.log('🆘 Using static fallback for featured articles');
     const categories: CategoryType[] = ["technology", "business", "sports", "health", "entertainment", "world"];
-    return categories.map((cat, index) => {
-      const articles = getFallbackNews(cat, 1);
-      return articles.map(article => ({
-        ...article,
-        url: `${article.url}?carousel=${index}`
-      }));
-    }).flat().slice(0, 6);
+    return categories.flatMap(cat => getFallbackNews(cat, 1)).slice(0, 6);
   }
 }
 
