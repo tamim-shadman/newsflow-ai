@@ -301,7 +301,18 @@ export async function fetchFeaturedFromAllCategories(): Promise<NewsAPIArticle[]
     // Check cache first
     const cacheKey = 'featured_all_categories';
     const cached = getFromCache(cacheKey);
-    if (cached) return cached;
+    if (cached) {
+      // Apply unique carousel URLs to cached data
+      console.log('✅ Using cached featured articles, adding unique carousel URLs');
+      return cached.map((article, index) => ({
+        ...article,
+        url: article.url.includes('?carousel=') 
+          ? article.url  // Already has carousel param
+          : article.url.includes('?')
+            ? `${article.url}&carousel=${index}`
+            : `${article.url}?carousel=${index}`
+      }));
+    }
 
     console.log('🔄 Fetching featured articles from all categories...');
 
@@ -336,6 +347,8 @@ export async function fetchFeaturedFromAllCategories(): Promise<NewsAPIArticle[]
             ? `${article.url}&carousel=${index}` 
             : `${article.url}?carousel=${index}`;
           
+          console.log(`🔗 Carousel item ${index}: ${article.title.substring(0, 40)}... → ${uniqueUrl}`);
+          
           featuredArticles.push({
             ...article,
             url: uniqueUrl
@@ -345,6 +358,7 @@ export async function fetchFeaturedFromAllCategories(): Promise<NewsAPIArticle[]
     });
 
     console.log(`✅ Fetched ${featuredArticles.length} featured articles with unique URLs`);
+    console.log('📋 Carousel URLs:', featuredArticles.map((a, i) => `[${i}] ${a.url}`));
     
     // If we have no articles, use static fallback
     if (featuredArticles.length === 0) {
@@ -371,14 +385,27 @@ export async function fetchFeaturedFromAllCategories(): Promise<NewsAPIArticle[]
     // Try to get from stale cache
     const staleCache = cache.get('featured_all_categories');
     if (staleCache) {
-      console.log('⚠️ Using stale cache for featured articles');
-      return staleCache.data;
+      console.log('⚠️ Using stale cache for featured articles, adding unique URLs');
+      return staleCache.data.map((article: NewsAPIArticle, index: number) => ({
+        ...article,
+        url: article.url.includes('?carousel=') 
+          ? article.url
+          : article.url.includes('?')
+            ? `${article.url}&carousel=${index}`
+            : `${article.url}?carousel=${index}`
+      }));
     }
     
-    // Last resort: static fallback
+    // Last resort: static fallback with unique URLs
     console.log('🆘 Using static fallback for featured articles');
     const categories: CategoryType[] = ["technology", "business", "sports", "health", "entertainment", "world"];
-    return categories.flatMap(cat => getFallbackNews(cat, 1)).slice(0, 6);
+    return categories.map((cat, index) => {
+      const articles = getFallbackNews(cat, 1);
+      return articles.map(article => ({
+        ...article,
+        url: `${article.url}?carousel=${index}`
+      }));
+    }).flat().slice(0, 6);
   }
 }
 

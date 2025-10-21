@@ -277,13 +277,18 @@ const Index = () => {
     }
     
     console.log(`✅ Converting ${featuredData.length} featured articles to NewsArticle format`);
+    console.log('📋 Featured API data URLs:', featuredData.map((a, i) => `[${i}] ${a.url}`));
     
-    return featuredData.map((article, index) => {
+    const converted = featuredData.map((article, index) => {
       // Determine category from the article or use index-based mapping
       const categoryMap: CategoryType[] = ["technology", "business", "sports", "health", "entertainment", "world"];
       const category = categoryMap[index % categoryMap.length];
       return convertToNewsArticle(article, category);
     });
+    
+    console.log('🎠 Final carousel NewsArticle URLs:', converted.map((a, i) => `[${i}] ${a.url}`));
+    
+    return converted;
   }, [featuredData, convertToNewsArticle]);
 
   // Use trending data when in trending category, otherwise use regular news data
@@ -390,7 +395,10 @@ const Index = () => {
 
   const handleArticleClick = (url?: string) => {
     if (url) {
+      console.log('🖱️ Article clicked, opening URL:', url);
       window.open(url, "_blank", "noopener,noreferrer");
+    } else {
+      console.warn('⚠️ Article clicked but no URL provided');
     }
   };
 
