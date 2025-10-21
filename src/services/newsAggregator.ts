@@ -141,11 +141,9 @@ export async function fetchNewsByCategory(
       } catch (serverlessError: unknown) {
         const errorMsg = serverlessError instanceof Error ? serverlessError.message : 'Unknown error';
         errors.push(`Serverless API failed: ${errorMsg}`);
-        console.warn("⚠️ Serverless API failed, falling back immediately...", errorMsg);
-        // Immediately use fallback
-        const fallback = getFallbackNews(category, pageSize);
-        setCache(cacheKey, fallback);
-        return fallback;
+        console.warn("⚠️ Serverless API error (but has 4-layer fallback):", errorMsg);
+        // Serverless function has its own sequential fallback, so empty articles means all 4 APIs failed
+        articles = []; // Will be handled by the stale cache fallback below
       }
     }
     
@@ -165,11 +163,9 @@ export async function fetchNewsByCategory(
       } catch (directError: unknown) {
         const errorMsg = directError instanceof Error ? directError.message : 'Unknown error';
         errors.push(`Direct fetch failed: ${errorMsg}`);
-        console.warn("⚠️ Direct fetch failed, using fallback...", errorMsg);
-        // Immediately use fallback
-        const fallback = getFallbackNews(category, pageSize);
-        setCache(cacheKey, fallback);
-        return fallback;
+        console.warn("⚠️ Direct fetch error (all 4 APIs failed):", errorMsg);
+        // All APIs exhausted, will use stale cache below
+        articles = [];
       }
     }
 
@@ -311,17 +307,14 @@ export async function fetchFeaturedFromAllCategories(): Promise<NewsAPIArticle[]
     const categories: CategoryType[] = ["technology", "business", "sports", "health", "entertainment", "world"];
     const featuredArticles: NewsAPIArticle[] = [];
 
-    // Fetch 2 articles from each category in parallel with timeout protection
+    // Fetch 2 articles from each category in parallel
+    // Each fetchNewsByCategory already has sequential API fallback (Guardian→Currents→GNews→NewsData)
+    // Plus stale cache fallback, so this should almost always return real articles
     const promises = categories.map(cat => 
-      Promise.race([
-        fetchNewsByCategory(cat, 2),
-        new Promise<NewsAPIArticle[]>((_, reject) => 
-          setTimeout(() => reject(new Error('Timeout')), 8000)
-        )
-      ]).catch(err => {
-        console.warn(`⚠️ Failed to fetch featured for ${cat}, using fallback:`, err.message);
-        // Use fallback data for this category
-        return getFallbackNews(cat, 2);
+      fetchNewsByCategory(cat, 2).catch(err => {
+        console.warn(`⚠️ Failed to fetch featured for ${cat} (this should be rare):`, err.message);
+        // Return empty array, will be filtered out
+        return [];
       })
     );
     
