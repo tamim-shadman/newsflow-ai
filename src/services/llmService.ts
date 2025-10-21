@@ -4,6 +4,13 @@ import type { NewsAPIArticle, EnhancedArticle } from "@/types/news";
 const GROQ_API_KEY = import.meta.env.VITE_GROQ_API_KEY;
 const GROQ_API_URL = "https://api.groq.com/openai/v1/chat/completions";
 
+// Debug: Log API key status
+console.log('Groq API Configuration:', {
+  hasApiKey: !!GROQ_API_KEY,
+  apiKeyLength: GROQ_API_KEY?.length,
+  apiKeyPrefix: GROQ_API_KEY?.substring(0, 8)
+});
+
 // Using Groq's free tier with llama-3.3-70b-versatile model (fast and free)
 const MODEL = "llama-3.3-70b-versatile";
 

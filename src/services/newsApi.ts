@@ -8,6 +8,13 @@ import type {
 const NEWS_API_KEY = import.meta.env.VITE_NEWS_API_KEY;
 const NEWS_API_BASE_URL = "https://newsapi.org/v2";
 
+// Debug: Log API key status
+console.log('NewsAPI Configuration:', {
+  hasApiKey: !!NEWS_API_KEY,
+  apiKeyLength: NEWS_API_KEY?.length,
+  apiKeyPrefix: NEWS_API_KEY?.substring(0, 8)
+});
+
 // Category mapping from our app categories to NewsAPI categories
 const categoryMapping: Record<string, string> = {
   all: "general",
@@ -31,6 +38,8 @@ export async function fetchNewsByCategory(
   pageSize: number = 20
 ): Promise<NewsAPIArticle[]> {
   try {
+    console.log(`Fetching news for category: ${category}`);
+    
     // Special handling for sports category - only European football and cricket
     if (category === "sports") {
       return await fetchSportsNews(pageSize);
@@ -43,18 +52,31 @@ export async function fetchNewsByCategory(
     yesterday.setDate(yesterday.getDate() - 1);
     const fromDate = yesterday.toISOString();
 
+    const requestParams = {
+      apiKey: NEWS_API_KEY,
+      category: apiCategory,
+      language: "en",
+      pageSize,
+      from: fromDate,
+    };
+    
+    console.log('NewsAPI Request:', {
+      url: `${NEWS_API_BASE_URL}/top-headlines`,
+      params: { ...requestParams, apiKey: '***' }
+    });
+
     const response = await axios.get<NewsAPIResponse>(
       `${NEWS_API_BASE_URL}/top-headlines`,
       {
-        params: {
-          apiKey: NEWS_API_KEY,
-          category: apiCategory,
-          language: "en",
-          pageSize,
-          from: fromDate,
-        },
+        params: requestParams,
       }
     );
+
+    console.log('NewsAPI Response:', {
+      status: response.data.status,
+      totalResults: response.data.totalResults,
+      articlesCount: response.data.articles?.length
+    });
 
     if (response.data.status === "ok") {
       return response.data.articles.filter(
@@ -65,6 +87,13 @@ export async function fetchNewsByCategory(
     throw new Error("Failed to fetch news");
   } catch (error) {
     console.error("Error fetching news:", error);
+    if (axios.isAxiosError(error)) {
+      console.error("Axios error details:", {
+        message: error.message,
+        response: error.response?.data,
+        status: error.response?.status
+      });
+    }
 
     // Return fallback data if API fails
     return getFallbackNews(category);
