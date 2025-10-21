@@ -668,10 +668,23 @@ const Index = () => {
           ) : featuredNews.length > 0 ? (
             <div className="relative group">
               <div className="relative h-[400px] sm:h-[500px] lg:h-[550px] rounded-2xl sm:rounded-3xl overflow-hidden shadow-2xl ring-2 ring-white/10">
-                {featuredNews.map((news, index) => (
+                {featuredNews.map((news, index) => {
+                  // Debug logging for carousel URLs
+                  if (index === 0) {
+                    console.log('🎠 Carousel Items:', featuredNews.map((n, i) => ({ 
+                      index: i, 
+                      title: n.title.substring(0, 30) + '...', 
+                      url: n.url 
+                    })));
+                  }
+                  
+                  return (
                   <div
                     key={news.id}
-                    onClick={() => handleArticleClick(news.url)}
+                    onClick={() => {
+                      console.log(`🖱️ Carousel click - Index ${index}: ${news.title.substring(0, 40)}... → ${news.url}`);
+                      handleArticleClick(news.url);
+                    }}
                     className={`absolute inset-0 transition-all duration-1000 transform cursor-pointer ${
                       index === currentSlide
                         ? "opacity-100 scale-100 rotate-0"
@@ -785,7 +798,8 @@ const Index = () => {
                       </div>
                     </div>
                   </div>
-                ))}
+                  );
+                })}
               </div>
 
               {featuredNews.length > 1 && (
