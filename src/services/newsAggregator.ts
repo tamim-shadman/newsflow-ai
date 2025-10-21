@@ -20,9 +20,25 @@ interface CacheEntry {
 
 const cache = new Map<string, CacheEntry>();
 const CACHE_TTL = 2 * 60 * 60 * 1000; // 2 hours (7200000 ms)
+const MAX_ARTICLE_AGE = 24 * 60 * 60 * 1000; // 24 hours in milliseconds
 
 // Persistent fallback data (never expires)
 const persistentFallback = new Map<string, NewsAPIArticle[]>();
+
+/**
+ * Filter articles to only include those from last 24 hours
+ */
+function filterRecent24Hours(articles: NewsAPIArticle[]): NewsAPIArticle[] {
+  const now = Date.now();
+  return articles.filter(article => {
+    if (!article.publishedAt) return false;
+    
+    const publishedTime = new Date(article.publishedAt).getTime();
+    const age = now - publishedTime;
+    
+    return age <= MAX_ARTICLE_AGE;
+  });
+}
 
 // Initialize cache with fallback data immediately on load
 // This ensures the app always has data to show
@@ -111,10 +127,16 @@ export async function fetchNewsByCategory(
         });
 
         if (response.data.status === "ok" && response.data.articles) {
+          // Filter articles: valid title AND from last 24 hours
           articles = response.data.articles.filter(
             (article: NewsAPIArticle) =>
               article.title && article.title !== "[Removed]"
           );
+          
+          // Apply 24-hour filter
+          const recentArticles = filterRecent24Hours(articles);
+          console.log(`📅 Filtered ${articles.length} → ${recentArticles.length} articles (last 24 hours)`);
+          articles = recentArticles;
         }
       } catch (serverlessError: unknown) {
         const errorMsg = serverlessError instanceof Error ? serverlessError.message : 'Unknown error';
@@ -135,7 +157,11 @@ export async function fetchNewsByCategory(
           setTimeout(() => reject(new Error('Direct fetch timeout')), 8000)
         );
         
-        articles = await Promise.race([fetchPromise, timeoutPromise]);
+        const fetchedArticles = await Promise.race([fetchPromise, timeoutPromise]);
+        
+        // Apply 24-hour filter
+        articles = filterRecent24Hours(fetchedArticles);
+        console.log(`📅 Filtered ${fetchedArticles.length} → ${articles.length} articles (last 24 hours)`);
       } catch (directError: unknown) {
         const errorMsg = directError instanceof Error ? directError.message : 'Unknown error';
         errors.push(`Direct fetch failed: ${errorMsg}`);
@@ -299,22 +325,38 @@ export async function fetchFeaturedFromAllCategories(): Promise<NewsAPIArticle[]
     const results = await Promise.all(promises);
 
     // Take the first (most recent/relevant) article from each category
+    // Add unique identifier to prevent all carousel items from opening same link
     results.forEach((articles, index) => {
       if (articles && articles.length > 0) {
         const article = articles[0];
         // Ensure the article has required fields
         if (article.title && article.url) {
-          featuredArticles.push(article);
+          // Make URL unique for each carousel item
+          const uniqueUrl = article.url.includes('?') 
+            ? `${article.url}&carousel=${index}` 
+            : `${article.url}?carousel=${index}`;
+          
+          featuredArticles.push({
+            ...article,
+            url: uniqueUrl
+          });
         }
       }
     });
 
-    console.log(`✅ Fetched ${featuredArticles.length} featured articles from all categories`);
+    console.log(`✅ Fetched ${featuredArticles.length} featured articles with unique URLs`);
     
     // If we have no articles, use static fallback
     if (featuredArticles.length === 0) {
       console.log('🆘 Using complete static fallback for featured articles');
-      const fallbackArticles = categories.flatMap(cat => getFallbackNews(cat, 1));
+      const fallbackArticles = categories.map((cat, index) => {
+        const articles = getFallbackNews(cat, 1);
+        // Make each fallback URL unique
+        return articles.map(article => ({
+          ...article,
+          url: `${article.url}?carousel=${index}`
+        }));
+      }).flat();
       setCache(cacheKey, fallbackArticles.slice(0, 6));
       return fallbackArticles.slice(0, 6);
     }
