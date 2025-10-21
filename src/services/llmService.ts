@@ -1,15 +1,10 @@
 import axios from "axios";
 import type { NewsAPIArticle, EnhancedArticle } from "@/types/news";
 
-const GROQ_API_KEY = import.meta.env.VITE_GROQ_API_KEY;
-const GROQ_API_URL = "https://api.groq.com/openai/v1/chat/completions";
-
-// Debug: Log API key status
-console.log('Groq API Configuration:', {
-  hasApiKey: !!GROQ_API_KEY,
-  apiKeyLength: GROQ_API_KEY?.length,
-  apiKeyPrefix: GROQ_API_KEY?.substring(0, 8)
-});
+// Use serverless function instead of direct API call (secure for production)
+const IS_PRODUCTION = import.meta.env.PROD;
+const GROQ_API_URL = IS_PRODUCTION ? "/api/chat" : "https://api.groq.com/openai/v1/chat/completions";
+const GROQ_API_KEY = import.meta.env.GROQ_API_KEY;
 
 // Using Groq's free tier with llama-3.3-70b-versatile model (fast and free)
 const MODEL = "llama-3.3-70b-versatile";
@@ -73,14 +68,15 @@ Make the language vivid, engaging, and professional. Focus on what makes this ne
         messages,
         temperature: 0.7,
         max_tokens: 1000,
-        response_format: { type: "json_object" },
       },
-      {
-        headers: {
-          Authorization: `Bearer ${GROQ_API_KEY}`,
-          "Content-Type": "application/json",
-        },
-      }
+      IS_PRODUCTION
+        ? {}
+        : {
+            headers: {
+              Authorization: `Bearer ${GROQ_API_KEY}`,
+              "Content-Type": "application/json",
+            },
+          }
     );
 
     const content = response.data.choices[0].message.content;
@@ -186,12 +182,14 @@ Write a compelling 2-3 paragraph overview that:
         temperature: 0.7,
         max_tokens: 500,
       },
-      {
-        headers: {
-          Authorization: `Bearer ${GROQ_API_KEY}`,
-          "Content-Type": "application/json",
-        },
-      }
+      IS_PRODUCTION
+        ? {}
+        : {
+            headers: {
+              Authorization: `Bearer ${GROQ_API_KEY}`,
+              "Content-Type": "application/json",
+            },
+          }
     );
 
     return response.data.choices[0].message.content;

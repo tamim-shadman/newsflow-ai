@@ -41,7 +41,7 @@ import {
   calculateReadTime,
   getTimeAgo,
   generateViewCount,
-} from "@/services/newsApi";
+} from "@/services/newsAggregator";
 import {
   enhanceArticlesBatch,
   enhanceArticleWithLLM,
