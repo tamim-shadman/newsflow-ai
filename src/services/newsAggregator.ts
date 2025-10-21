@@ -24,6 +24,13 @@ const CACHE_TTL = 2 * 60 * 60 * 1000; // 2 hours (7200000 ms)
 // Persistent fallback data (never expires)
 const persistentFallback = new Map<string, NewsAPIArticle[]>();
 
+// Initialize cache with fallback data immediately on load
+// This ensures the app always has data to show
+function initializeCache() {
+  // We'll initialize this later after getFallbackNews is defined
+  console.log('🚀 Cache initialization deferred until first use');
+}
+
 // Helper to get from cache
 function getFromCache(key: string): NewsAPIArticle[] | null {
   const entry = cache.get(key);
@@ -95,7 +102,7 @@ export async function fetchNewsByCategory(
             pageSize,
             language: "en",
           },
-          timeout: 15000, // 15 second timeout
+          timeout: 10000, // 10 second timeout (reduced from 15)
         });
 
         console.log("✅ Serverless API Response:", {
@@ -103,22 +110,41 @@ export async function fetchNewsByCategory(
           totalResults: response.data.totalResults,
         });
 
-        if (response.data.status === "ok") {
+        if (response.data.status === "ok" && response.data.articles) {
           articles = response.data.articles.filter(
             (article: NewsAPIArticle) =>
               article.title && article.title !== "[Removed]"
           );
         }
-      } catch (serverlessError) {
-        errors.push("Serverless API failed");
-        console.warn("⚠️ Serverless API failed, trying direct fetch...");
-        // Fall through to direct fetch
+      } catch (serverlessError: unknown) {
+        const errorMsg = serverlessError instanceof Error ? serverlessError.message : 'Unknown error';
+        errors.push(`Serverless API failed: ${errorMsg}`);
+        console.warn("⚠️ Serverless API failed, falling back immediately...", errorMsg);
+        // Immediately use fallback
+        const fallback = getFallbackNews(category, pageSize);
+        setCache(cacheKey, fallback);
+        return fallback;
       }
     }
     
-    // If serverless failed or not in production, fetch directly
+    // If serverless failed or not in production, try direct fetch (with timeout)
     if (articles.length === 0) {
-      articles = await fetchNewsDirectly(category, pageSize);
+      try {
+        const fetchPromise = fetchNewsDirectly(category, pageSize);
+        const timeoutPromise = new Promise<NewsAPIArticle[]>((_, reject) => 
+          setTimeout(() => reject(new Error('Direct fetch timeout')), 8000)
+        );
+        
+        articles = await Promise.race([fetchPromise, timeoutPromise]);
+      } catch (directError: unknown) {
+        const errorMsg = directError instanceof Error ? directError.message : 'Unknown error';
+        errors.push(`Direct fetch failed: ${errorMsg}`);
+        console.warn("⚠️ Direct fetch failed, using fallback...", errorMsg);
+        // Immediately use fallback
+        const fallback = getFallbackNews(category, pageSize);
+        setCache(cacheKey, fallback);
+        return fallback;
+      }
     }
 
     // Cache the results if successful
@@ -168,30 +194,75 @@ export async function fetchNewsByCategory(
 export async function fetchTrendingNews(
   pageSize: number = 10
 ): Promise<NewsAPIArticle[]> {
+  const cacheKey = `trending_${pageSize}`;
+  
   try {
-    if (NEWS_API_URL) {
-      const response = await axios.get(NEWS_API_URL, {
-        params: {
-          category: "general",
-          pageSize,
-          language: "en",
-        },
-      });
+    // Check cache first (2-hour TTL)
+    const cached = getFromCache(cacheKey);
+    if (cached) return cached;
 
-      if (response.data.status === "ok") {
-        return response.data.articles.filter(
-          (article: NewsAPIArticle) =>
-            article.title && article.title !== "[Removed]"
-        );
+    console.log('🔄 Fetching trending news...');
+
+    let articles: NewsAPIArticle[] = [];
+
+    if (NEWS_API_URL) {
+      try {
+        const response = await axios.get(NEWS_API_URL, {
+          params: {
+            category: "general",
+            pageSize,
+            language: "en",
+          },
+          timeout: 10000,
+        });
+
+        if (response.data.status === "ok") {
+          articles = response.data.articles.filter(
+            (article: NewsAPIArticle) =>
+              article.title && article.title !== "[Removed]"
+          );
+        }
+      } catch (apiError) {
+        console.warn("⚠️ Trending API failed, trying direct fetch...");
       }
-    } else {
-      return await fetchNewsDirectly("trending", pageSize);
+    }
+    
+    // If serverless failed, try direct fetch
+    if (articles.length === 0) {
+      articles = await fetchNewsDirectly("all", pageSize);
     }
 
-    throw new Error("Failed to fetch trending news");
+    // Cache if successful
+    if (articles.length > 0) {
+      setCache(cacheKey, articles);
+      console.log(`✅ Successfully fetched ${articles.length} trending articles`);
+      return articles;
+    }
+
+    throw new Error("Failed to fetch trending news from all sources");
   } catch (error) {
-    console.error("Error fetching trending news:", error);
-    return getFallbackNews("trending");
+    console.error("❌ Error fetching trending news:", error);
+    
+    // Fallback chain:
+    // 1. Stale cache
+    const staleCache = cache.get(cacheKey);
+    if (staleCache) {
+      console.log('⚠️ Using stale cache for trending news');
+      return staleCache.data;
+    }
+
+    // 2. Persistent fallback
+    const persistent = getPersistentFallback(cacheKey);
+    if (persistent) {
+      console.log('⚠️ Using persistent fallback for trending news');
+      return persistent;
+    }
+
+    // 3. Static fallback
+    console.log('🆘 Using static fallback for trending news');
+    const fallback = getFallbackNews("all", pageSize);
+    setCache(cacheKey, fallback);
+    return fallback;
   }
 }
 
@@ -206,6 +277,8 @@ export async function fetchFeaturedFromAllCategories(): Promise<NewsAPIArticle[]
     const cached = getFromCache(cacheKey);
     if (cached) return cached;
 
+    console.log('🔄 Fetching featured articles from all categories...');
+
     const categories: CategoryType[] = ["technology", "business", "sports", "health", "entertainment", "world"];
     const featuredArticles: NewsAPIArticle[] = [];
 
@@ -217,8 +290,9 @@ export async function fetchFeaturedFromAllCategories(): Promise<NewsAPIArticle[]
           setTimeout(() => reject(new Error('Timeout')), 8000)
         )
       ]).catch(err => {
-        console.warn(`Failed to fetch featured for ${cat}:`, err.message);
-        return [];
+        console.warn(`⚠️ Failed to fetch featured for ${cat}, using fallback:`, err.message);
+        // Use fallback data for this category
+        return getFallbackNews(cat, 2);
       })
     );
     
@@ -227,24 +301,42 @@ export async function fetchFeaturedFromAllCategories(): Promise<NewsAPIArticle[]
     // Take the first (most recent/relevant) article from each category
     results.forEach((articles, index) => {
       if (articles && articles.length > 0) {
-        featuredArticles.push({
-          ...articles[0],
-          // Add category info for better display
-        });
+        const article = articles[0];
+        // Ensure the article has required fields
+        if (article.title && article.url) {
+          featuredArticles.push(article);
+        }
       }
     });
 
-    console.log(`Fetched ${featuredArticles.length} featured articles from all categories`);
+    console.log(`✅ Fetched ${featuredArticles.length} featured articles from all categories`);
+    
+    // If we have no articles, use static fallback
+    if (featuredArticles.length === 0) {
+      console.log('🆘 Using complete static fallback for featured articles');
+      const fallbackArticles = categories.flatMap(cat => getFallbackNews(cat, 1));
+      setCache(cacheKey, fallbackArticles.slice(0, 6));
+      return fallbackArticles.slice(0, 6);
+    }
     
     // Cache the results
-    if (featuredArticles.length > 0) {
-      setCache(cacheKey, featuredArticles);
-    }
+    setCache(cacheKey, featuredArticles);
     
     return featuredArticles;
   } catch (error) {
-    console.error("Error fetching featured from all categories:", error);
-    return getFallbackNews("all").slice(0, 6);
+    console.error("❌ Error fetching featured from all categories:", error);
+    
+    // Try to get from stale cache
+    const staleCache = cache.get('featured_all_categories');
+    if (staleCache) {
+      console.log('⚠️ Using stale cache for featured articles');
+      return staleCache.data;
+    }
+    
+    // Last resort: static fallback
+    console.log('🆘 Using static fallback for featured articles');
+    const categories: CategoryType[] = ["technology", "business", "sports", "health", "entertainment", "world"];
+    return categories.flatMap(cat => getFallbackNews(cat, 1)).slice(0, 6);
   }
 }
 
@@ -661,3 +753,21 @@ export function generateViewCount(): string {
   const count = Math.floor(Math.random() * 200) + 10;
   return `${count}K`;
 }
+
+// Initialize fallback data in persistent cache on module load
+// This ensures we always have data available immediately
+(() => {
+  const categories: CategoryType[] = ["all", "technology", "business", "sports", "health", "entertainment", "world", "trending"];
+  
+  categories.forEach(category => {
+    const cacheKey = `news_${category}_20`;
+    try {
+      const fallbackData = getFallbackNews(category, 20);
+      persistentFallback.set(cacheKey, fallbackData);
+    } catch (e) {
+      console.warn(`Failed to initialize fallback for ${category}`);
+    }
+  });
+  
+  console.log('🚀 Persistent fallback data initialized for all categories');
+})();

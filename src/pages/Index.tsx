@@ -206,13 +206,15 @@ const Index = () => {
   });
 
   // Fetch featured news from all categories (1 from each)
-  const { data: featuredData, isLoading: featuredLoading } = useQuery({
+  const { data: featuredData, isLoading: featuredLoading, error: featuredError } = useQuery({
     queryKey: ["featured-all-categories"],
     queryFn: () => fetchFeaturedFromAllCategories(),
     staleTime: 2 * 60 * 60 * 1000, // 2 hours
     refetchInterval: 2 * 60 * 60 * 1000, // Refetch every 2 hours
     refetchOnWindowFocus: false,
     refetchOnReconnect: false,
+    retry: 3, // Retry failed requests 3 times
+    retryDelay: 1000, // Wait 1 second between retries
   });
 
   // Fetch breaking news for ticker
@@ -268,14 +270,21 @@ const Index = () => {
     [enhancedArticles, viewCounts]
   );
 
-  const featuredNews: NewsArticle[] = featuredData
-    ? featuredData.map((article, index) => {
-        // Determine category from the article or use index-based mapping
-        const categoryMap: CategoryType[] = ["technology", "business", "sports", "health", "entertainment", "world"];
-        const category = categoryMap[index % categoryMap.length];
-        return convertToNewsArticle(article, category);
-      })
-    : [];
+  const featuredNews: NewsArticle[] = useMemo(() => {
+    if (!featuredData || featuredData.length === 0) {
+      console.warn('⚠️ No featured data available in Index.tsx');
+      return [];
+    }
+    
+    console.log(`✅ Converting ${featuredData.length} featured articles to NewsArticle format`);
+    
+    return featuredData.map((article, index) => {
+      // Determine category from the article or use index-based mapping
+      const categoryMap: CategoryType[] = ["technology", "business", "sports", "health", "entertainment", "world"];
+      const category = categoryMap[index % categoryMap.length];
+      return convertToNewsArticle(article, category);
+    });
+  }, [featuredData, convertToNewsArticle]);
 
   // Use trending data when in trending category, otherwise use regular news data
   const currentNewsData = activeCategory === "trending" ? trendingData : newsData;
@@ -636,6 +645,18 @@ const Index = () => {
 
           {featuredLoading ? (
             <FeaturedSkeleton />
+          ) : featuredError ? (
+            <div className="relative h-[400px] sm:h-[500px] lg:h-[550px] rounded-2xl sm:rounded-3xl overflow-hidden shadow-2xl ring-2 ring-white/10 bg-black/30 backdrop-blur-2xl flex items-center justify-center">
+              <div className="text-center p-6 sm:p-12">
+                <div className={`inline-flex items-center justify-center p-4 sm:p-6 rounded-2xl sm:rounded-3xl bg-gradient-to-r ${theme.accent} bg-opacity-20 mb-4 sm:mb-6`}>
+                  <TrendingUp className="w-10 h-10 sm:w-16 sm:h-16 text-white opacity-50" />
+                </div>
+                <h3 className="text-xl sm:text-2xl font-bold text-white mb-2 sm:mb-3">Loading Featured Stories</h3>
+                <p className="text-gray-400 text-sm sm:text-base max-w-md mx-auto">
+                  Fetching the latest stories from all categories. This may take a moment...
+                </p>
+              </div>
+            </div>
           ) : featuredNews.length > 0 ? (
             <div className="relative group">
               <div className="relative h-[400px] sm:h-[500px] lg:h-[550px] rounded-2xl sm:rounded-3xl overflow-hidden shadow-2xl ring-2 ring-white/10">
@@ -793,7 +814,17 @@ const Index = () => {
               )}
             </div>
           ) : (
-            <EmptyState message="No featured stories available" />
+            <div className="relative h-[400px] sm:h-[500px] lg:h-[550px] rounded-2xl sm:rounded-3xl overflow-hidden shadow-2xl ring-2 ring-white/10 bg-black/30 backdrop-blur-2xl flex items-center justify-center">
+              <div className="text-center p-6 sm:p-12">
+                <div className={`inline-flex items-center justify-center p-4 sm:p-6 rounded-2xl sm:rounded-3xl bg-gradient-to-r ${theme.accent} bg-opacity-20 mb-4 sm:mb-6`}>
+                  <Sparkles className="w-10 h-10 sm:w-16 sm:h-16 text-white opacity-50" />
+                </div>
+                <h3 className="text-xl sm:text-2xl font-bold text-white mb-2 sm:mb-3">No Featured Stories Yet</h3>
+                <p className="text-gray-400 text-sm sm:text-base max-w-md mx-auto">
+                  We're gathering the best stories for you. Check back in a moment!
+                </p>
+              </div>
+            </div>
           )}
         </div>
 
