@@ -446,75 +446,168 @@ export async function searchNews(
 
 /**
  * Fetch news directly from APIs (for local development)
+ * Uses sequential fallback: Guardian → Currents → GNews → NewsData
+ * Returns as soon as one succeeds (much more efficient than aggregation)
  */
 async function fetchNewsDirectly(
   category: CategoryType,
   pageSize: number
 ): Promise<NewsAPIArticle[]> {
-  const articles: NewsAPIArticle[] = [];
   const cat = category === "all" ? "general" : category;
+  
+  // Try 1: The Guardian (BEST - 5000 requests/day)
+  if (GUARDIAN_API_KEY) {
+    try {
+      console.log('🔄 Trying Guardian API (5000/day quota)...');
+      const guardianSection = cat === "general" ? "world" : cat;
+      const response = await axios.get(
+        `https://content.guardianapis.com/search?section=${guardianSection}&show-fields=thumbnail,trailText,byline&page-size=${pageSize}&api-key=${GUARDIAN_API_KEY}`,
+        { timeout: 8000 }
+      );
 
-  try {
-    // Fetch from The Guardian (best free API) with timeout
-    if (GUARDIAN_API_KEY) {
-      try {
-        const guardianSection = cat === "general" ? "world" : cat;
-        const response = await axios.get(
-          `https://content.guardianapis.com/search?section=${guardianSection}&show-fields=thumbnail,trailText,byline&page-size=${pageSize}&api-key=${GUARDIAN_API_KEY}`,
-          { timeout: 8000 }
-        );
-
-        const guardianArticles = response.data.response?.results || [];
-        guardianArticles.forEach((article: { fields?: { byline?: string; trailText?: string; thumbnail?: string }; webTitle: string; webUrl: string; webPublicationDate: string }) => {
-          articles.push({
-            source: { id: "guardian", name: "The Guardian" },
-            author: article.fields?.byline || "The Guardian",
-            title: article.webTitle,
-            description: article.fields?.trailText || article.webTitle,
-            url: article.webUrl,
-            urlToImage: article.fields?.thumbnail,
-            publishedAt: article.webPublicationDate,
-            content: article.fields?.trailText,
-          });
-        });
-      } catch (guardianError) {
-        console.warn("Guardian API failed:", guardianError);
+      const guardianArticles = response.data.response?.results || [];
+      if (guardianArticles.length > 0) {
+        const articles = guardianArticles.map((article: { 
+          fields?: { byline?: string; trailText?: string; thumbnail?: string }; 
+          webTitle: string; 
+          webUrl: string; 
+          webPublicationDate: string 
+        }) => ({
+          source: { id: "guardian", name: "The Guardian" },
+          author: article.fields?.byline || "The Guardian",
+          title: article.webTitle,
+          description: article.fields?.trailText || article.webTitle,
+          url: article.webUrl,
+          urlToImage: article.fields?.thumbnail || "https://images.unsplash.com/photo-1504711434969-e33886168f5c?w=800&h=600&fit=crop",
+          publishedAt: article.webPublicationDate,
+          content: article.fields?.trailText,
+        }));
+        
+        console.log(`✅ Guardian API SUCCESS: ${articles.length} articles`);
+        return articles;
       }
+    } catch (guardianError) {
+      console.warn("⚠️ Guardian API failed, trying next provider...");
     }
-
-    // Fetch from GNews if we need more articles
-    if (articles.length < pageSize && GNEWS_API_KEY) {
-      try {
-        const gnewsCategory = cat === "general" ? "world" : cat;
-        const response = await axios.get(
-          `https://gnews.io/api/v4/top-headlines?category=${gnewsCategory}&lang=en&apikey=${GNEWS_API_KEY}`,
-          { timeout: 8000 }
-        );
-
-        const gnewsArticles = response.data.articles || [];
-        gnewsArticles.forEach((article: { source?: { name?: string }; title: string; description: string; url: string; image: string; publishedAt: string; content: string }) => {
-          articles.push({
-            source: { id: "gnews", name: article.source?.name || "GNews" },
-            author: article.source?.name || "GNews",
-            title: article.title,
-            description: article.description,
-            url: article.url,
-            urlToImage: article.image,
-            publishedAt: article.publishedAt,
-            content: article.content,
-          });
-        });
-      } catch (gnewsError) {
-        console.warn("GNews API failed:", gnewsError);
-      }
-    }
-
-    console.log(`Fetched ${articles.length} articles directly from APIs`);
-    return articles.slice(0, pageSize);
-  } catch (error) {
-    console.error("Error fetching news directly:", error);
-    return getFallbackNews(category);
   }
+
+  // Try 2: Currents API (600 requests/day)
+  if (CURRENTS_API_KEY) {
+    try {
+      console.log('🔄 Trying Currents API (600/day quota)...');
+      const response = await axios.get(
+        `https://api.currentsapi.services/v1/latest-news?apiKey=${CURRENTS_API_KEY}&category=${cat}&language=en`,
+        { timeout: 8000 }
+      );
+
+      const currentsArticles = response.data.news || [];
+      if (currentsArticles.length > 0) {
+        const articles = currentsArticles.slice(0, pageSize).map((article: {
+          author?: string;
+          title: string;
+          description: string;
+          url: string;
+          image?: string;
+          published: string;
+        }) => ({
+          source: { id: "currents", name: "Currents API" },
+          author: article.author || "Currents",
+          title: article.title,
+          description: article.description,
+          url: article.url,
+          urlToImage: article.image || "https://images.unsplash.com/photo-1504711434969-e33886168f5c?w=800&h=600&fit=crop",
+          publishedAt: article.published,
+          content: article.description,
+        }));
+        
+        console.log(`✅ Currents API SUCCESS: ${articles.length} articles`);
+        return articles;
+      }
+    } catch (currentsError) {
+      console.warn("⚠️ Currents API failed, trying next provider...");
+    }
+  }
+
+  // Try 3: GNews (100 requests/day)
+  if (GNEWS_API_KEY) {
+    try {
+      console.log('🔄 Trying GNews API (100/day quota)...');
+      const gnewsCategory = cat === "general" ? "world" : cat;
+      const response = await axios.get(
+        `https://gnews.io/api/v4/top-headlines?category=${gnewsCategory}&lang=en&max=${pageSize}&apikey=${GNEWS_API_KEY}`,
+        { timeout: 8000 }
+      );
+
+      const gnewsArticles = response.data.articles || [];
+      if (gnewsArticles.length > 0) {
+        const articles = gnewsArticles.map((article: { 
+          source?: { name?: string }; 
+          title: string; 
+          description: string; 
+          url: string; 
+          image: string; 
+          publishedAt: string; 
+          content: string 
+        }) => ({
+          source: { id: "gnews", name: article.source?.name || "GNews" },
+          author: article.source?.name || "GNews",
+          title: article.title,
+          description: article.description,
+          url: article.url,
+          urlToImage: article.image || "https://images.unsplash.com/photo-504711434969-e33886168f5c?w=800&h=600&fit=crop",
+          publishedAt: article.publishedAt,
+          content: article.content,
+        }));
+        
+        console.log(`✅ GNews API SUCCESS: ${articles.length} articles`);
+        return articles;
+      }
+    } catch (gnewsError) {
+      console.warn("⚠️ GNews API failed, trying next provider...");
+    }
+  }
+
+  // Try 4: NewsData.io (200 requests/day - Last resort)
+  if (NEWSDATA_API_KEY) {
+    try {
+      console.log('🔄 Trying NewsData.io API (200/day quota)...');
+      const response = await axios.get(
+        `https://newsdata.io/api/1/news?apikey=${NEWSDATA_API_KEY}&category=${cat}&language=en`,
+        { timeout: 8000 }
+      );
+
+      const newsdataArticles = response.data.results || [];
+      if (newsdataArticles.length > 0) {
+        const articles = newsdataArticles.slice(0, pageSize).map((article: {
+          creator?: string[];
+          title: string;
+          description?: string;
+          link: string;
+          image_url?: string;
+          pubDate: string;
+          content?: string;
+          source_id?: string;
+        }) => ({
+          source: { id: "newsdata", name: article.source_id || "NewsData" },
+          author: article.creator?.[0] || "NewsData",
+          title: article.title,
+          description: article.description || article.title,
+          url: article.link,
+          urlToImage: article.image_url || "https://images.unsplash.com/photo-1504711434969-e33886168f5c?w=800&h=600&fit=crop",
+          publishedAt: article.pubDate,
+          content: article.content || article.description,
+        }));
+        
+        console.log(`✅ NewsData.io API SUCCESS: ${articles.length} articles`);
+        return articles;
+      }
+    } catch (newsdataError) {
+      console.warn("⚠️ NewsData.io API failed, all providers exhausted");
+    }
+  }
+
+  console.error("❌ All 4 API providers failed, returning empty array");
+  return [];
 }
 
 /**
@@ -544,6 +637,46 @@ function getFallbackNews(category: CategoryType, pageSize: number = 20): NewsAPI
         publishedAt: new Date(Date.now() - 3 * 60 * 60 * 1000).toISOString(),
         content: "Major economies announced new trade frameworks aimed at fostering international cooperation and economic stability.",
       },
+      {
+        source: { id: "cnn", name: "CNN" },
+        author: "Maria Garcia",
+        title: "Space Exploration Enters New Era with Private Missions",
+        description: "Commercial spaceflight companies announce ambitious plans for lunar and Mars exploration programs.",
+        url: "https://example.com/space",
+        urlToImage: "https://images.unsplash.com/photo-1516849841032-87cbac4d88f7?w=800&h=600&fit=crop",
+        publishedAt: new Date(Date.now() - 5 * 60 * 60 * 1000).toISOString(),
+        content: "The space industry witnesses unprecedented growth as private companies unveil revolutionary spacecraft and mission plans.",
+      },
+      {
+        source: { id: "aljazeera", name: "Al Jazeera" },
+        author: "Ahmed Hassan",
+        title: "Renewable Energy Projects Transform Developing Nations",
+        description: "Sustainable power initiatives bring electricity and economic opportunities to underserved communities.",
+        url: "https://example.com/renewable",
+        urlToImage: "https://images.unsplash.com/photo-1473341304170-971dccb5ac1e?w=800&h=600&fit=crop",
+        publishedAt: new Date(Date.now() - 7 * 60 * 60 * 1000).toISOString(),
+        content: "Clean energy projects provide sustainable solutions for communities in developing regions, improving quality of life.",
+      },
+      {
+        source: { id: "guardian", name: "The Guardian" },
+        author: "Sophie Dubois",
+        title: "Historic Peace Talks Bring Hope to Conflict Zones",
+        description: "Diplomatic efforts yield promising results as warring factions agree to ceasefire negotiations.",
+        url: "https://example.com/peace",
+        urlToImage: "https://images.unsplash.com/photo-1436491865332-7a61a109cc05?w=800&h=600&fit=crop",
+        publishedAt: new Date(Date.now() - 9 * 60 * 60 * 1000).toISOString(),
+        content: "International mediators successfully brought together representatives from conflicting parties for groundbreaking peace discussions.",
+      },
+      {
+        source: { id: "nyt", name: "New York Times" },
+        author: "David Park",
+        title: "Education Reform Initiatives Transform Learning Worldwide",
+        description: "Innovative teaching methods and technology integration revolutionize classrooms across the globe.",
+        url: "https://example.com/education",
+        urlToImage: "https://images.unsplash.com/photo-1503676260728-1c00da094a0b?w=800&h=600&fit=crop",
+        publishedAt: new Date(Date.now() - 11 * 60 * 60 * 1000).toISOString(),
+        content: "Educational institutions embrace new pedagogical approaches combining digital tools with personalized learning strategies.",
+      },
     ],
     technology: [
       {
@@ -565,6 +698,36 @@ function getFallbackNews(category: CategoryType, pageSize: number = 20): NewsAPI
         urlToImage: "https://images.unsplash.com/photo-1635070041078-e363dbe005cb?w=800&h=600&fit=crop",
         publishedAt: new Date(Date.now() - 4 * 60 * 60 * 1000).toISOString(),
         content: "A team of quantum physicists successfully demonstrated a 1000-qubit quantum computer capable of solving previously impossible calculations.",
+      },
+      {
+        source: { id: "verge", name: "The Verge" },
+        author: "Sam Martinez",
+        title: "Next-Gen Smartphones Feature Holographic Displays",
+        description: "Major tech companies unveil revolutionary devices with 3D holographic projection capabilities.",
+        url: "https://example.com/holographic",
+        urlToImage: "https://images.unsplash.com/photo-1511707171634-5f897ff02aa9?w=800&h=600&fit=crop",
+        publishedAt: new Date(Date.now() - 6 * 60 * 60 * 1000).toISOString(),
+        content: "The smartphone industry takes a giant leap forward with holographic display technology becoming commercially available.",
+      },
+      {
+        source: { id: "cnet", name: "CNET" },
+        author: "Rachel Kim",
+        title: "Cybersecurity Advances Combat Rising Threat Landscape",
+        description: "New AI-powered security systems detect and prevent cyber attacks with unprecedented accuracy.",
+        url: "https://example.com/cybersecurity",
+        urlToImage: "https://images.unsplash.com/photo-1550751827-4bd374c3f58b?w=800&h=600&fit=crop",
+        publishedAt: new Date(Date.now() - 8 * 60 * 60 * 1000).toISOString(),
+        content: "Advanced machine learning algorithms now provide real-time threat detection and automated response to cyber attacks.",
+      },
+      {
+        source: { id: "ars", name: "Ars Technica" },
+        author: "Lisa Wong",
+        title: "Breakthrough in Battery Technology Promises Week-Long Charge",
+        description: "Scientists develop revolutionary solid-state batteries with 10x capacity of current lithium-ion technology.",
+        url: "https://example.com/battery",
+        urlToImage: "https://images.unsplash.com/photo-1609091839311-d5365f9ff1c5?w=800&h=600&fit=crop",
+        publishedAt: new Date(Date.now() - 10 * 60 * 60 * 1000).toISOString(),
+        content: "New battery technology could revolutionize electric vehicles and consumer electronics with unprecedented energy density.",
       },
     ],
     business: [
@@ -588,6 +751,26 @@ function getFallbackNews(category: CategoryType, pageSize: number = 20): NewsAPI
         publishedAt: new Date(Date.now() - 5 * 60 * 60 * 1000).toISOString(),
         content: "Tech startups secured over $50 billion in funding this quarter, marking the highest investment period in history.",
       },
+      {
+        source: { id: "forbes", name: "Forbes" },
+        author: "Thomas Anderson",
+        title: "Cryptocurrency Market Stabilizes After Regulatory Clarity",
+        description: "Digital assets gain mainstream acceptance as governments establish clear regulatory frameworks.",
+        url: "https://example.com/crypto",
+        urlToImage: "https://images.unsplash.com/photo-1621761191319-c6fb62004040?w=800&h=600&fit=crop",
+        publishedAt: new Date(Date.now() - 7 * 60 * 60 * 1000).toISOString(),
+        content: "Major economies announce comprehensive cryptocurrency regulations, providing much-needed clarity for investors and businesses.",
+      },
+      {
+        source: { id: "ft", name: "Financial Times" },
+        author: "Sophie Turner",
+        title: "Green Bonds Surge as ESG Investing Dominates Markets",
+        description: "Environmental, social, and governance investments reach record levels as companies prioritize sustainability.",
+        url: "https://example.com/esg",
+        urlToImage: "https://images.unsplash.com/photo-1460925895917-afdab827c52f?w=800&h=600&fit=crop",
+        publishedAt: new Date(Date.now() - 9 * 60 * 60 * 1000).toISOString(),
+        content: "Sustainable investing becomes mainstream as trillions of dollars flow into ESG-focused funds and green bonds.",
+      },
     ],
     health: [
       {
@@ -609,6 +792,26 @@ function getFallbackNews(category: CategoryType, pageSize: number = 20): NewsAPI
         urlToImage: "https://images.unsplash.com/photo-1579154204601-01588f351e67?w=800&h=600&fit=crop",
         publishedAt: new Date(Date.now() - 6 * 60 * 60 * 1000).toISOString(),
         content: "Gene therapy trials show unprecedented success rates, potentially curing previously untreatable genetic disorders.",
+      },
+      {
+        source: { id: "healthnews", name: "Health News" },
+        author: "Dr. Amanda Foster",
+        title: "Mental Health Apps Show Remarkable Effectiveness",
+        description: "Digital therapy platforms demonstrate significant positive impact on mental wellness outcomes.",
+        url: "https://example.com/mental-health",
+        urlToImage: "https://images.unsplash.com/photo-1576765607924-3f7b8410a787?w=800&h=600&fit=crop",
+        publishedAt: new Date(Date.now() - 8 * 60 * 60 * 1000).toISOString(),
+        content: "Studies show that AI-powered mental health applications provide accessible and effective support for millions of users worldwide.",
+      },
+      {
+        source: { id: "wellness", name: "Wellness Today" },
+        author: "Dr. Jessica Wong",
+        title: "Immunotherapy Breakthroughs Transform Cancer Treatment",
+        description: "Novel approaches harness immune system to fight cancer with unprecedented success rates.",
+        url: "https://example.com/immunotherapy",
+        urlToImage: "https://images.unsplash.com/photo-1532938911079-1b06ac7ceec7?w=800&h=600&fit=crop",
+        publishedAt: new Date(Date.now() - 10 * 60 * 60 * 1000).toISOString(),
+        content: "Revolutionary immunotherapy treatments achieve remarkable results in previously untreatable cancers, offering new hope to patients.",
       },
     ],
     sports: [
@@ -632,6 +835,26 @@ function getFallbackNews(category: CategoryType, pageSize: number = 20): NewsAPI
         publishedAt: new Date(Date.now() - 7 * 60 * 60 * 1000).toISOString(),
         content: "Athletes from around the world achieved remarkable feats, breaking long-standing records in multiple disciplines.",
       },
+      {
+        source: { id: "athletic", name: "The Athletic" },
+        author: "Marcus Johnson",
+        title: "Olympic Preparations Reach Final Stages",
+        description: "Host city completes state-of-the-art facilities as world's best athletes prepare for competition.",
+        url: "https://example.com/olympics",
+        urlToImage: "https://images.unsplash.com/photo-1551958219-acbc608c6377?w=800&h=600&fit=crop",
+        publishedAt: new Date(Date.now() - 10 * 60 * 60 * 1000).toISOString(),
+        content: "Anticipation builds as the Olympic Games approach, with athletes and facilities ready for the world's premier sporting event.",
+      },
+      {
+        source: { id: "bleacher", name: "Bleacher Report" },
+        author: "Tony Williams",
+        title: "Underdog Team Stuns Favorites in Historic Upset",
+        description: "Long-shot contenders defy odds with spectacular performance against championship favorites.",
+        url: "https://example.com/upset",
+        urlToImage: "https://images.unsplash.com/photo-1579952363873-27f3bade9f55?w=800&h=600&fit=crop",
+        publishedAt: new Date(Date.now() - 12 * 60 * 60 * 1000).toISOString(),
+        content: "In one of the greatest upsets in sports history, the underdog team delivered a stunning victory that shocked the world.",
+      },
     ],
     entertainment: [
       {
@@ -654,6 +877,26 @@ function getFallbackNews(category: CategoryType, pageSize: number = 20): NewsAPI
         publishedAt: new Date(Date.now() - 8 * 60 * 60 * 1000).toISOString(),
         content: "Major streaming platform announced investment of billions in original content, targeting international markets with diverse programming.",
       },
+      {
+        source: { id: "entertainment", name: "Entertainment Weekly" },
+        author: "Nina Patel",
+        title: "Music Festival Sets Attendance Records with Global Lineup",
+        description: "Legendary artists and emerging stars unite for unprecedented musical celebration.",
+        url: "https://example.com/music-festival",
+        urlToImage: "https://images.unsplash.com/photo-1514525253161-7a46d19cd819?w=800&h=600&fit=crop",
+        publishedAt: new Date(Date.now() - 11 * 60 * 60 * 1000).toISOString(),
+        content: "The festival drew record crowds as music fans from around the world gathered for an unforgettable weekend of performances.",
+      },
+      {
+        source: { id: "billboard", name: "Billboard" },
+        author: "Jordan Hayes",
+        title: "Chart-Topping Album Breaks Streaming Records",
+        description: "New release dominates music charts worldwide, setting new standards for digital consumption.",
+        url: "https://example.com/album",
+        urlToImage: "https://images.unsplash.com/photo-1493225457124-a3eb161ffa5f?w=800&h=600&fit=crop",
+        publishedAt: new Date(Date.now() - 14 * 60 * 60 * 1000).toISOString(),
+        content: "The album shattered streaming records within hours of release, marking a historic moment in music industry history.",
+      },
     ],
     world: [
       {
@@ -674,7 +917,27 @@ function getFallbackNews(category: CategoryType, pageSize: number = 20): NewsAPI
         url: "https://example.com/humanitarian",
         urlToImage: "https://images.unsplash.com/photo-1488521787991-ed7bbaae773c?w=800&h=600&fit=crop",
         publishedAt: new Date(Date.now() - 9 * 60 * 60 * 1000).toISOString(),
-        content: "Global humanitarian response provides critical assistance to affected populations, showcasing international solidarity.",
+        content: "Global relief efforts provide critical assistance to regions affected by natural disasters and humanitarian crises.",
+      },
+      {
+        source: { id: "bbc", name: "BBC World" },
+        author: "Elena Volkov",
+        title: "Historic Cultural Exchange Programs Unite Nations",
+        description: "Countries launch ambitious initiatives to promote mutual understanding and cultural appreciation.",
+        url: "https://example.com/cultural",
+        urlToImage: "https://images.unsplash.com/photo-1523050854058-8df90110c9f1?w=800&h=600&fit=crop",
+        publishedAt: new Date(Date.now() - 12 * 60 * 60 * 1000).toISOString(),
+        content: "Innovative cultural exchange programs foster international friendship and understanding across diverse societies.",
+      },
+      {
+        source: { id: "ap", name: "Associated Press" },
+        author: "Carlos Silva",
+        title: "Global Education Initiative Reaches Millions of Students",
+        description: "International partnership provides free quality education to underserved populations worldwide.",
+        url: "https://example.com/global-education",
+        urlToImage: "https://images.unsplash.com/photo-1427504494785-3a9ca7044f45?w=800&h=600&fit=crop",
+        publishedAt: new Date(Date.now() - 15 * 60 * 60 * 1000).toISOString(),
+        content: "Groundbreaking education programs leverage technology to deliver world-class learning opportunities to remote areas.",
       },
     ],
     trending: [
@@ -688,24 +951,57 @@ function getFallbackNews(category: CategoryType, pageSize: number = 20): NewsAPI
         publishedAt: new Date(Date.now() - 1 * 60 * 60 * 1000).toISOString(),
         content: "A touching story of human kindness went viral, reaching over 100 million people worldwide within hours.",
       },
+      {
+        source: { id: "buzzfeed", name: "BuzzFeed News" },
+        author: "Viral Content Team",
+        title: "Unexpected Collaboration Surprises and Delights Fans",
+        description: "Unlikely partnership between celebrities creates internet sensation and trending phenomenon.",
+        url: "https://example.com/collab",
+        urlToImage: "https://images.unsplash.com/photo-1492684223066-81342ee5ff30?w=800&h=600&fit=crop",
+        publishedAt: new Date(Date.now() - 4 * 60 * 60 * 1000).toISOString(),
+        content: "Fans celebrate unexpected collaboration that brings together talents from different fields in creative new project.",
+      },
+      {
+        source: { id: "mashable", name: "Mashable" },
+        author: "Trends Reporter",
+        title: "Social Media Challenge Unites Internet in Positive Movement",
+        description: "Wholesome online challenge inspires millions to participate in acts of kindness worldwide.",
+        url: "https://example.com/challenge",
+        urlToImage: "https://images.unsplash.com/photo-1588196749597-9ff075ee6b5b?w=800&h=600&fit=crop",
+        publishedAt: new Date(Date.now() - 6 * 60 * 60 * 1000).toISOString(),
+        content: "Uplifting social media challenge spreads positivity globally as millions share their participation and inspire others.",
+      },
+      {
+        source: { id: "reddit", name: "Reddit Today" },
+        author: "Community Highlights",
+        title: "Internet Phenomenon Breaks All-Time Engagement Records",
+        description: "Unprecedented online event captures attention of billions, setting new social media milestones.",
+        url: "https://example.com/phenomenon",
+        urlToImage: "https://images.unsplash.com/photo-1551292831-023188e78222?w=800&h=600&fit=crop",
+        publishedAt: new Date(Date.now() - 8 * 60 * 60 * 1000).toISOString(),
+        content: "Global online event generated record-breaking engagement across all major social media platforms simultaneously.",
+      },
     ],
   };
 
   const categoryArticles = fallbackDatabase[category] || fallbackDatabase.all;
   
-  // Duplicate articles if needed to meet pageSize
+  // Create unique articles without excessive duplication
   const result: NewsAPIArticle[] = [];
-  let index = 0;
-  while (result.length < pageSize) {
+  const articlesCount = categoryArticles.length;
+  
+  for (let i = 0; i < Math.min(pageSize, articlesCount * 10); i++) {
+    const sourceArticle = categoryArticles[i % articlesCount];
     result.push({
-      ...categoryArticles[index % categoryArticles.length],
-      // Make each duplicate slightly different by adjusting timestamp
-      publishedAt: new Date(Date.now() - (2 + result.length) * 60 * 60 * 1000).toISOString(),
+      ...sourceArticle,
+      // Make URL unique for each instance
+      url: i < articlesCount ? sourceArticle.url : `${sourceArticle.url}?id=${i}`,
+      // Vary timestamps
+      publishedAt: new Date(Date.now() - (2 + i) * 60 * 60 * 1000).toISOString(),
     });
-    index++;
   }
 
-  console.log(`🆘 Returning ${result.length} fallback articles for category: ${category}`);
+  console.log(`🆘 Returning ${result.length} fallback articles for category: ${category} (from ${articlesCount} templates)`);
   return result.slice(0, pageSize);
 }
 

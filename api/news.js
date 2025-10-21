@@ -1,5 +1,6 @@
-// Serverless function for news aggregation from multiple sources
-// Combines NewsData.io, Currents API, GNews, and The Guardian
+// Serverless function for news fetching with sequential fallback
+// API Priority: Guardian (5000/day) → Currents (600/day) → GNews (100/day) → NewsData (200/day)
+// Returns as soon as ONE API succeeds (much more efficient than aggregation)
 
 export default async function handler(req, res) {
   // Enable CORS
@@ -29,91 +30,111 @@ export default async function handler(req, res) {
   const GUARDIAN_API_KEY = process.env.GUARDIAN_API_KEY;
 
   try {
-    const articles = [];
+    let articles = [];
 
-    // Fetch from multiple sources in parallel
-    const promises = [];
+    // Sequential fallback: Try APIs one by one (most efficient approach)
+    // API Ranking: Guardian (5000/day) → Currents (600/day) → GNews (100/day) → NewsData (200/day)
 
-    // 1. NewsData.io (Free: 200 requests/day)
-    if (NEWSDATA_API_KEY) {
-      promises.push(
-        fetch(`https://newsdata.io/api/1/news?apikey=${NEWSDATA_API_KEY}&category=${category}&language=${language}`)
-          .then(res => res.json())
-          .then(data => data.results || [])
-          .catch(err => {
-            console.error('NewsData.io error:', err);
-            return [];
-          })
-      );
-    }
-
-    // 2. Currents API (Free: 600 requests/day)
-    if (CURRENTS_API_KEY) {
-      promises.push(
-        fetch(`https://api.currentsapi.services/v1/latest-news?apiKey=${CURRENTS_API_KEY}&category=${category}&language=${language}`)
-          .then(res => res.json())
-          .then(data => data.news || [])
-          .catch(err => {
-            console.error('Currents API error:', err);
-            return [];
-          })
-      );
-    }
-
-    // 3. GNews (Free: 100 requests/day)
-    if (GNEWS_API_KEY) {
-      const gnewsCategory = category === 'general' ? 'world' : category;
-      promises.push(
-        fetch(`https://gnews.io/api/v4/top-headlines?category=${gnewsCategory}&lang=${language}&apikey=${GNEWS_API_KEY}`)
-          .then(res => res.json())
-          .then(data => data.articles || [])
-          .catch(err => {
-            console.error('GNews error:', err);
-            return [];
-          })
-      );
-    }
-
-    // 4. The Guardian (Free: 5000 requests/day - Best!)
-    if (GUARDIAN_API_KEY) {
-      const guardianSection = category === 'general' ? 'world' : category;
-      promises.push(
-        fetch(`https://content.guardianapis.com/search?section=${guardianSection}&show-fields=thumbnail,trailText,byline&page-size=10&api-key=${GUARDIAN_API_KEY}`)
-          .then(res => res.json())
-          .then(data => data.response?.results || [])
-          .catch(err => {
-            console.error('Guardian error:', err);
-            return [];
-          })
-      );
-    }
-
-    // Wait for all API calls
-    const results = await Promise.all(promises);
-
-    // Normalize and combine articles
-    results.forEach((sourceArticles, index) => {
-      sourceArticles.forEach(article => {
-        const normalized = normalizeArticle(article, index);
-        if (normalized) {
-          articles.push(normalized);
+    // Try 1: The Guardian (BEST - 5000 requests/day, highest quota)
+    if (GUARDIAN_API_KEY && articles.length === 0) {
+      try {
+        console.log('🔄 Trying Guardian API (5000/day)...');
+        const guardianSection = category === 'general' ? 'world' : category;
+        const response = await fetch(
+          `https://content.guardianapis.com/search?section=${guardianSection}&show-fields=thumbnail,trailText,byline&page-size=${pageSize}&api-key=${GUARDIAN_API_KEY}`,
+          { signal: AbortSignal.timeout(8000) }
+        );
+        const data = await response.json();
+        const guardianArticles = data.response?.results || [];
+        
+        if (guardianArticles.length > 0) {
+          articles = guardianArticles.map(article => normalizeArticle(article, 3));
+          console.log(`✅ Guardian SUCCESS: ${articles.length} articles`);
         }
+      } catch (err) {
+        console.warn('⚠️ Guardian failed, trying next provider...', err.message);
+      }
+    }
+
+    // Try 2: Currents API (600 requests/day)
+    if (CURRENTS_API_KEY && articles.length === 0) {
+      try {
+        console.log('🔄 Trying Currents API (600/day)...');
+        const response = await fetch(
+          `https://api.currentsapi.services/v1/latest-news?apiKey=${CURRENTS_API_KEY}&category=${category}&language=${language}`,
+          { signal: AbortSignal.timeout(8000) }
+        );
+        const data = await response.json();
+        const currentsArticles = data.news || [];
+        
+        if (currentsArticles.length > 0) {
+          articles = currentsArticles.slice(0, parseInt(pageSize)).map(article => normalizeArticle(article, 1));
+          console.log(`✅ Currents SUCCESS: ${articles.length} articles`);
+        }
+      } catch (err) {
+        console.warn('⚠️ Currents failed, trying next provider...', err.message);
+      }
+    }
+
+    // Try 3: GNews (100 requests/day)
+    if (GNEWS_API_KEY && articles.length === 0) {
+      try {
+        console.log('🔄 Trying GNews API (100/day)...');
+        const gnewsCategory = category === 'general' ? 'world' : category;
+        const response = await fetch(
+          `https://gnews.io/api/v4/top-headlines?category=${gnewsCategory}&lang=${language}&max=${pageSize}&apikey=${GNEWS_API_KEY}`,
+          { signal: AbortSignal.timeout(8000) }
+        );
+        const data = await response.json();
+        const gnewsArticles = data.articles || [];
+        
+        if (gnewsArticles.length > 0) {
+          articles = gnewsArticles.map(article => normalizeArticle(article, 2));
+          console.log(`✅ GNews SUCCESS: ${articles.length} articles`);
+        }
+      } catch (err) {
+        console.warn('⚠️ GNews failed, trying next provider...', err.message);
+      }
+    }
+
+    // Try 4: NewsData.io (200 requests/day - Last resort)
+    if (NEWSDATA_API_KEY && articles.length === 0) {
+      try {
+        console.log('🔄 Trying NewsData.io API (200/day)...');
+        const response = await fetch(
+          `https://newsdata.io/api/1/news?apikey=${NEWSDATA_API_KEY}&category=${category}&language=${language}`,
+          { signal: AbortSignal.timeout(8000) }
+        );
+        const data = await response.json();
+        const newsdataArticles = data.results || [];
+        
+        if (newsdataArticles.length > 0) {
+          articles = newsdataArticles.slice(0, parseInt(pageSize)).map(article => normalizeArticle(article, 0));
+          console.log(`✅ NewsData SUCCESS: ${articles.length} articles`);
+        }
+      } catch (err) {
+        console.warn('⚠️ NewsData failed, all providers exhausted', err.message);
+      }
+    }
+
+    // Filter out any null articles and sort by date
+    const validArticles = articles.filter(a => a !== null);
+    validArticles.sort((a, b) => new Date(b.publishedAt) - new Date(a.publishedAt));
+
+    if (validArticles.length === 0) {
+      console.error('❌ All 4 API providers failed');
+      return res.status(503).json({
+        status: 'error',
+        message: 'All news providers are currently unavailable',
+        totalResults: 0,
+        articles: []
       });
-    });
-
-    // Remove duplicates based on title similarity
-    const uniqueArticles = removeDuplicates(articles);
-
-    // Sort by published date (newest first)
-    uniqueArticles.sort((a, b) => new Date(b.publishedAt) - new Date(a.publishedAt));
-
-    // Limit to requested page size
-    const limitedArticles = uniqueArticles.slice(0, parseInt(pageSize));
+    }
 
     res.status(200).json({
       status: 'ok',
-      totalResults: limitedArticles.length,
-      articles: limitedArticles
+      totalResults: validArticles.length,
+      articles: validArticles
     });
 
   } catch (error) {
