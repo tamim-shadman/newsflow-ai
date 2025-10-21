@@ -37,6 +37,8 @@ import { ErrorState, EmptyState } from "@/components/ErrorState";
 import {
   fetchNewsByCategory,
   fetchTrendingNews,
+  fetchFeaturedFromAllCategories,
+  fetchBreakingNews,
   searchNews,
   calculateReadTime,
   getTimeAgo,
@@ -140,6 +142,12 @@ const Index = () => {
     { id: "world" as CategoryType, name: "World", icon: Globe },
   ];
 
+  // Helper to get category icon
+  const getCategoryIcon = (category: CategoryType | string) => {
+    const cat = categories.find(c => c.id === category);
+    return cat ? cat.icon : Newspaper;
+  };
+
   // Fetch news based on active category or search query
   const {
     data: newsData,
@@ -158,12 +166,20 @@ const Index = () => {
     refetchInterval: 10 * 60 * 1000, // Refetch every 10 minutes
   });
 
-  // Fetch featured/trending news
+  // Fetch featured news from all categories (1 from each)
   const { data: featuredData, isLoading: featuredLoading } = useQuery({
-    queryKey: ["featured-news"],
-    queryFn: () => fetchTrendingNews(8),
+    queryKey: ["featured-all-categories"],
+    queryFn: () => fetchFeaturedFromAllCategories(),
     staleTime: 5 * 60 * 1000,
     refetchInterval: 10 * 60 * 1000,
+  });
+
+  // Fetch breaking news for ticker
+  const { data: breakingNewsData } = useQuery({
+    queryKey: ["breaking-news"],
+    queryFn: () => fetchBreakingNews(15),
+    staleTime: 3 * 60 * 1000, // 3 minutes
+    refetchInterval: 5 * 60 * 1000, // Refetch every 5 minutes
   });
 
   // Debounce search query
@@ -210,9 +226,12 @@ const Index = () => {
   );
 
   const featuredNews: NewsArticle[] = featuredData
-    ? featuredData
-        .slice(0, 4)
-        .map((article) => convertToNewsArticle(article, "trending"))
+    ? featuredData.map((article, index) => {
+        // Determine category from the article or use index-based mapping
+        const categoryMap: CategoryType[] = ["technology", "business", "sports", "health", "entertainment", "world"];
+        const category = categoryMap[index % categoryMap.length];
+        return convertToNewsArticle(article, category);
+      })
     : [];
 
   const newsArticles: NewsArticle[] = newsData
@@ -221,15 +240,16 @@ const Index = () => {
 
   const filteredNews = newsArticles;
 
-  const tickerNews = newsData?.slice(0, 5).map((a) => a.title) || [
-    "Loading latest news...",
+  const tickerNews = breakingNewsData || [
+    "Loading latest breaking news from around the world...",
+    "Stay tuned for real-time updates...",
   ];
 
-  // Enhance articles with LLM when data loads
+  // Enhance articles with LLM when data loads (optimized - only enhance first 3)
   useEffect(() => {
     const enhanceNews = async () => {
       if (newsData && newsData.length > 0) {
-        const enhanced = await enhanceArticlesBatch(newsData.slice(0, 10), 5);
+        const enhanced = await enhanceArticlesBatch(newsData.slice(0, 3), 3);
         setEnhancedArticles(enhanced);
       }
     };
@@ -378,20 +398,21 @@ const Index = () => {
       <div className="relative z-10 bg-black/80 border-b border-white/10 overflow-hidden">
         <div className="flex items-center">
           <div
-            className={`px-6 py-2 bg-gradient-to-r ${theme.accent} flex items-center space-x-2`}
+            className={`px-6 py-3 bg-gradient-to-r ${theme.accent} flex items-center space-x-2 shrink-0`}
           >
-            <Zap className="w-4 h-4 text-white animate-pulse" />
+            <Zap className="w-5 h-5 text-white animate-pulse" />
             <span className="text-white font-bold text-sm whitespace-nowrap">
-              BREAKING
+              BREAKING NEWS
             </span>
           </div>
-          <div className="flex-1 overflow-hidden py-2">
+          <div className="flex-1 overflow-hidden py-3">
             <div className="flex animate-scroll">
               {[...tickerNews, ...tickerNews].map((news, idx) => (
                 <span
                   key={idx}
-                  className="text-gray-300 text-sm mx-8 whitespace-nowrap"
+                  className="text-gray-200 text-sm mx-8 whitespace-nowrap font-medium"
                 >
+                  <span className="text-red-400 mr-2">●</span>
                   {news}
                 </span>
               ))}
@@ -401,7 +422,7 @@ const Index = () => {
       </div>
 
       {/* Glassmorphic Header */}
-      <header className="relative z-10 backdrop-blur-2xl bg-black/50 border-b border-white/20 sticky top-0 shadow-2xl">
+      <header className="sticky z-10 top-0 backdrop-blur-2xl bg-black/50 border-b border-white/20 shadow-2xl">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-5">
           <div className="flex items-center justify-between gap-6">
             <div className="flex items-center space-x-4">
@@ -452,7 +473,7 @@ const Index = () => {
       </header>
 
       {/* Category Navigation */}
-      <nav className="relative z-10 backdrop-blur-2xl bg-black/40 border-b border-white/20 sticky top-[85px] shadow-xl">
+      <nav className="sticky z-10 top-[89px] backdrop-blur-2xl bg-black/40 border-b border-white/20 shadow-xl">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
           <div className="flex space-x-3 overflow-x-auto py-5 scrollbar-hide">
             {categories.map((cat) => {
@@ -462,9 +483,9 @@ const Index = () => {
                 <button
                   key={cat.id}
                   onClick={() => handleCategoryChange(cat.id)}
-                  className={`flex items-center space-x-2 px-5 py-3 rounded-2xl font-bold whitespace-nowrap transition-all duration-300 transform hover:scale-110 hover:-translate-y-1 ${
+                  className={`flex items-center space-x-2 px-6 py-3 rounded-2xl font-bold whitespace-nowrap transition-all duration-300 transform hover:scale-110 hover:-translate-y-1 ${
                     isActive
-                      ? `bg-gradient-to-r ${theme.accent} text-white shadow-2xl ${theme.glow} scale-105`
+                      ? `bg-gradient-to-r ${categoryThemes[cat.id].accent} text-white shadow-2xl ${categoryThemes[cat.id].glow} scale-105`
                       : "bg-white/10 text-gray-300 hover:bg-white/20 border border-white/10"
                   }`}
                 >
@@ -487,16 +508,21 @@ const Index = () => {
         {/* Featured Carousel */}
         <div className="mb-16">
           <div className="flex items-center justify-between mb-8">
-            <h2
-              className={`text-4xl font-black font-display bg-gradient-to-r ${theme.accent} bg-clip-text text-transparent flex items-center`}
-            >
-              <div
-                className={`p-2 rounded-xl bg-gradient-to-br ${theme.accent} mr-4 animate-pulse-glow`}
+            <div>
+              <h2
+                className={`text-4xl font-black font-display bg-gradient-to-r ${theme.accent} bg-clip-text text-transparent flex items-center`}
               >
-                <TrendingUp className="w-8 h-8 text-white" />
-              </div>
-              Enhanced Featured Stories
-            </h2>
+                <div
+                  className={`p-2 rounded-xl bg-gradient-to-br ${theme.accent} mr-4 animate-pulse-glow`}
+                >
+                  <TrendingUp className="w-8 h-8 text-white" />
+                </div>
+                Top Stories from Every Category
+              </h2>
+              <p className="text-gray-400 text-sm mt-2 ml-16">
+                Featured: Technology • Business • Sports • Health • Entertainment • World
+              </p>
+            </div>
             {featuredNews.length > 0 && (
               <div className="flex items-center space-x-2 text-gray-400">
                 <Eye className="w-5 h-5" />
@@ -549,35 +575,39 @@ const Index = () => {
                     </div>
 
                     <div className="absolute bottom-0 left-0 right-0 p-10">
-                      <div className="flex items-center space-x-3 mb-5">
+                      <div className="flex items-center flex-wrap gap-3 mb-5">
                         {news.isTrending && (
                           <span className="px-3 py-1 rounded-full text-xs font-bold bg-gradient-to-r from-orange-500 to-red-500 text-white shadow-xl shadow-orange-500/50 animate-pulse-glow flex items-center space-x-1">
                             <Flame className="w-3 h-3" />
-                            <span>HOT</span>
+                            <span>TRENDING</span>
                           </span>
                         )}
                         <span
-                          className={`px-4 py-2 rounded-full text-sm font-bold bg-gradient-to-r ${
+                          className={`px-5 py-2 rounded-full text-base font-black bg-gradient-to-r ${
                             categoryThemes[news.category].accent
-                          } text-white shadow-xl ${
+                          } text-white shadow-2xl ${
                             categoryThemes[news.category].glow
-                          } animate-pulse-glow`}
+                          } animate-pulse-glow uppercase tracking-wide flex items-center gap-2`}
                         >
-                          {news.category.toUpperCase()}
+                          {(() => {
+                            const CategoryIcon = getCategoryIcon(news.category);
+                            return <CategoryIcon className="w-5 h-5" />;
+                          })()}
+                          {news.category}
                         </span>
-                        <div className="flex items-center space-x-2 text-gray-300 bg-black/50 backdrop-blur-xl px-3 py-2 rounded-full">
+                        <div className="flex items-center space-x-2 text-gray-200 bg-black/60 backdrop-blur-xl px-4 py-2 rounded-full">
                           <Clock className="w-4 h-4" />
                           <span className="text-sm font-semibold">
                             {news.time}
                           </span>
                         </div>
-                        <div className="flex items-center space-x-2 text-gray-300 bg-black/50 backdrop-blur-xl px-3 py-2 rounded-full">
+                        <div className="flex items-center space-x-2 text-gray-200 bg-black/60 backdrop-blur-xl px-4 py-2 rounded-full">
                           <span className="text-sm font-semibold">
                             {news.readTime}
                           </span>
                         </div>
                         {news.source && (
-                          <div className="flex items-center space-x-2 text-gray-300 bg-black/50 backdrop-blur-xl px-3 py-2 rounded-full">
+                          <div className="flex items-center space-x-2 text-gray-200 bg-black/60 backdrop-blur-xl px-4 py-2 rounded-full">
                             <span className="text-sm font-semibold">
                               {news.source}
                             </span>

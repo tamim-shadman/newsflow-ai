@@ -31,29 +31,24 @@ export async function enhanceArticleWithLLM(
   article: NewsAPIArticle
 ): Promise<EnhancedArticle> {
   try {
-    const prompt = `You are a professional news editor. Enhance the following news article to make it more engaging, concise, and beautiful while maintaining accuracy.
+    // Simplified prompt to reduce tokens
+    const prompt = `Enhance this news article:
 
-Original Title: ${article.title}
-Original Description: ${article.description || "No description available"}
-Content Preview: ${
-      article.content ? article.content.substring(0, 500) : "Limited content"
-    }
+Title: ${article.title}
+Description: ${article.description || "No description"}
 
-Please provide a JSON response with the following structure:
+Respond with JSON only:
 {
-  "enhancedTitle": "A compelling, concise title (max 100 characters)",
-  "enhancedExcerpt": "An engaging 2-sentence summary that hooks the reader (max 200 characters)",
-  "summary": "A detailed 3-4 sentence summary of the article",
-  "keyPoints": ["3-5 key takeaway points as an array"]
-}
-
-Make the language vivid, engaging, and professional. Focus on what makes this news important and interesting.`;
+  "enhancedTitle": "compelling title max 80 chars",
+  "enhancedExcerpt": "2-sentence summary max 150 chars",
+  "summary": "3-4 sentence detailed summary",
+  "keyPoints": ["3-5 key points"]
+}`;
 
     const messages: GroqMessage[] = [
       {
         role: "system",
-        content:
-          "You are a professional news editor who creates engaging, accurate, and beautiful news summaries. Always respond with valid JSON only.",
+        content: "You are a news editor. Respond with valid JSON only.",
       },
       {
         role: "user",
@@ -67,7 +62,7 @@ Make the language vivid, engaging, and professional. Focus on what makes this ne
         model: MODEL,
         messages,
         temperature: 0.7,
-        max_tokens: 1000,
+        max_tokens: 500, // Reduced from 1000 to save quota
       },
       IS_PRODUCTION
         ? {}
@@ -80,7 +75,22 @@ Make the language vivid, engaging, and professional. Focus on what makes this ne
     );
 
     const content = response.data.choices[0].message.content;
-    const enhanced = JSON.parse(content);
+    
+    // Try to parse JSON, handle if it fails
+    let enhanced;
+    try {
+      enhanced = JSON.parse(content);
+    } catch (parseError) {
+      console.warn('Failed to parse LLM response as JSON, using original content');
+      return {
+        originalTitle: article.title,
+        enhancedTitle: article.title,
+        originalExcerpt: article.description || "",
+        enhancedExcerpt: article.description || "",
+        summary: article.description || "",
+        keyPoints: [],
+      };
+    }
 
     return {
       originalTitle: article.title,
@@ -113,7 +123,7 @@ Make the language vivid, engaging, and professional. Focus on what makes this ne
  */
 export async function enhanceArticlesBatch(
   articles: NewsAPIArticle[],
-  limit: number = 5
+  limit: number = 3 // Reduced from 5 to 3
 ): Promise<Map<string, EnhancedArticle>> {
   const enhancedMap = new Map<string, EnhancedArticle>();
 
@@ -126,10 +136,11 @@ export async function enhanceArticlesBatch(
       const enhanced = await enhanceArticleWithLLM(article);
       enhancedMap.set(article.url, enhanced);
 
-      // Small delay to avoid rate limiting
-      await new Promise((resolve) => setTimeout(resolve, 500));
+      // Longer delay to avoid rate limiting (1 second instead of 500ms)
+      await new Promise((resolve) => setTimeout(resolve, 1000));
     } catch (error) {
       console.error(`Failed to enhance article: ${article.title}`, error);
+      // Continue with next article instead of stopping
     }
   }
 
@@ -148,25 +159,19 @@ export async function generateNewsDigest(
 ): Promise<string> {
   try {
     const articleTitles = articles
-      .slice(0, 10)
+      .slice(0, 5) // Reduced from 10 to 5
       .map((a, i) => `${i + 1}. ${a.title}`)
       .join("\n");
 
-    const prompt = `Create an engaging news digest summary for the ${category} category based on these headlines:
+    // Simplified prompt
+    const prompt = `Summarize these ${category} headlines in 2-3 sentences (max 200 words):
 
-${articleTitles}
-
-Write a compelling 2-3 paragraph overview that:
-1. Highlights the most important stories
-2. Identifies common themes or trends
-3. Uses engaging, professional language
-4. Is concise but informative (max 300 words)`;
+${articleTitles}`;
 
     const messages: GroqMessage[] = [
       {
         role: "system",
-        content:
-          "You are a professional news anchor creating engaging news summaries.",
+        content: "You are a news anchor. Be concise.",
       },
       {
         role: "user",
@@ -180,7 +185,7 @@ Write a compelling 2-3 paragraph overview that:
         model: MODEL,
         messages,
         temperature: 0.7,
-        max_tokens: 500,
+        max_tokens: 300, // Reduced from 500
       },
       IS_PRODUCTION
         ? {}

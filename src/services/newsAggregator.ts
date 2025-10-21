@@ -103,6 +103,69 @@ export async function fetchTrendingNews(
 }
 
 /**
+ * Fetch one hot topic from each category for carousel
+ * @returns Promise with featured articles from each category
+ */
+export async function fetchFeaturedFromAllCategories(): Promise<NewsAPIArticle[]> {
+  const categories: CategoryType[] = ["technology", "business", "sports", "health", "entertainment", "world"];
+  const featuredArticles: NewsAPIArticle[] = [];
+
+  try {
+    // Fetch 2 articles from each category in parallel
+    const promises = categories.map(cat => fetchNewsByCategory(cat, 2));
+    const results = await Promise.all(promises);
+
+    // Take the first (most recent/relevant) article from each category
+    results.forEach((articles, index) => {
+      if (articles && articles.length > 0) {
+        featuredArticles.push({
+          ...articles[0],
+          // Add category info for better display
+        });
+      }
+    });
+
+    console.log(`Fetched ${featuredArticles.length} featured articles from all categories`);
+    return featuredArticles;
+  } catch (error) {
+    console.error("Error fetching featured from all categories:", error);
+    return getFallbackNews("all").slice(0, 6);
+  }
+}
+
+/**
+ * Fetch breaking news for ticker (more articles)
+ * @param limit - Number of breaking news items
+ * @returns Promise with breaking news titles
+ */
+export async function fetchBreakingNews(limit: number = 15): Promise<string[]> {
+  try {
+    // Fetch recent articles from multiple categories
+    const [general, tech, business] = await Promise.all([
+      fetchNewsByCategory("all", 5),
+      fetchNewsByCategory("technology", 5),
+      fetchNewsByCategory("business", 5),
+    ]);
+
+    const allArticles = [...general, ...tech, ...business];
+    
+    // Remove duplicates and get titles
+    const uniqueTitles = Array.from(
+      new Set(allArticles.map(a => a.title))
+    ).slice(0, limit);
+
+    return uniqueTitles;
+  } catch (error) {
+    console.error("Error fetching breaking news:", error);
+    return [
+      "Loading latest breaking news...",
+      "Stay tuned for more updates...",
+      "News from around the world coming soon...",
+    ];
+  }
+}
+
+/**
  * Search news articles by query
  * Note: Search might be limited on free tiers of aggregated APIs
  * @param query - Search query
