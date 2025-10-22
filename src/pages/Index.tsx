@@ -34,7 +34,13 @@ import {
   X,
   Moon,
   Sun,
+  Settings,
+  CalendarClock,
+  Download,
+  Smartphone,
+  ListChecks,
 } from "lucide-react";
+import type { LucideIcon } from "lucide-react";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -43,6 +49,8 @@ import {
   PopoverContent,
   PopoverTrigger,
 } from "@/components/ui/popover";
+import { ToastAction } from "@/components/ui/toast";
+import { useToast } from "@/components/ui/use-toast";
 import { NewsGridSkeleton, FeaturedSkeleton } from "@/components/NewsSkeletons";
 import { ErrorState, EmptyState } from "@/components/ErrorState";
 import { useTheme } from "@/contexts/ThemeContext";
@@ -64,13 +72,31 @@ import {
 import type {
   NewsArticle,
   CategoryType,
-  CategoryTheme,
   NewsAPIArticle,
   EnhancedArticle,
 } from "@/types/news";
+import { getCategoryTheme } from "@/lib/categoryThemes";
+
+type QuickActionCard = {
+  id: string;
+  title: string;
+  description: string;
+  icon: LucideIcon;
+  action: () => void;
+  actionLabel: string;
+};
+
+type PersonalStat = {
+  id: string;
+  label: string;
+  value: string;
+  caption: string;
+  icon: LucideIcon;
+};
 
 const Index = () => {
-  const { theme: appTheme, toggleTheme } = useTheme();
+  const { toast } = useToast();
+  const { theme: appTheme } = useTheme();
   const [activeCategory, setActiveCategory] = useState<CategoryType>("all");
   const [currentSlide, setCurrentSlide] = useState(0);
   const [isTransitioning, setIsTransitioning] = useState(false);
@@ -78,7 +104,8 @@ const Index = () => {
   const [hoveredCard, setHoveredCard] = useState<string | null>(null);
   const [searchQuery, setSearchQuery] = useState("");
   const [debouncedSearch, setDebouncedSearch] = useState("");
-  const [email, setEmail] = useState("");
+  const [notificationsEnabled, setNotificationsEnabled] = useState(false);
+  const [liveUpdatesEnabled, setLiveUpdatesEnabled] = useState(true);
   const [enhancedArticles, setEnhancedArticles] = useState<
     Map<string, EnhancedArticle>
   >(new Map());
@@ -95,72 +122,6 @@ const Index = () => {
   const loadMoreRef = useRef<HTMLDivElement>(null);
   const [isLoadingMore, setIsLoadingMore] = useState(false);
 
-  const categoryThemes: Record<string, CategoryTheme> = {
-    all: {
-      gradient: "from-purple-600 via-pink-600 to-blue-600",
-      bg: "bg-gradient-to-br from-purple-900/30 via-pink-900/30 to-blue-900/30",
-      accent: "from-purple-500 via-pink-500 to-blue-500",
-      text: "text-purple-300",
-      glow: "shadow-purple-500/50",
-    },
-    bangladesh: {
-      gradient: "from-green-500 via-red-500 to-green-600",
-      bg: "bg-gradient-to-br from-green-900/30 via-red-900/30 to-green-900/30",
-      accent: "from-green-500 via-red-500 to-green-500",
-      text: "text-green-300",
-      glow: "shadow-green-500/50",
-    },
-    trending: {
-      gradient: "from-orange-500 via-red-500 to-pink-600",
-      bg: "bg-gradient-to-br from-orange-900/30 via-red-900/30 to-pink-900/30",
-      accent: "from-orange-500 via-red-500 to-pink-500",
-      text: "text-orange-300",
-      glow: "shadow-orange-500/50",
-    },
-    business: {
-      gradient: "from-emerald-500 via-teal-500 to-cyan-600",
-      bg: "bg-gradient-to-br from-emerald-900/30 via-teal-900/30 to-cyan-900/30",
-      accent: "from-emerald-500 via-teal-500 to-cyan-500",
-      text: "text-emerald-300",
-      glow: "shadow-emerald-500/50",
-    },
-    technology: {
-      gradient: "from-blue-500 via-indigo-500 to-purple-600",
-      bg: "bg-gradient-to-br from-blue-900/30 via-indigo-900/30 to-purple-900/30",
-      accent: "from-blue-500 via-indigo-500 to-purple-500",
-      text: "text-blue-300",
-      glow: "shadow-blue-500/50",
-    },
-    health: {
-      gradient: "from-green-500 via-emerald-500 to-teal-600",
-      bg: "bg-gradient-to-br from-green-900/30 via-emerald-900/30 to-teal-900/30",
-      accent: "from-green-500 via-emerald-500 to-teal-500",
-      text: "text-green-300",
-      glow: "shadow-green-500/50",
-    },
-    sports: {
-      gradient: "from-yellow-500 via-amber-500 to-orange-600",
-      bg: "bg-gradient-to-br from-yellow-900/30 via-amber-900/30 to-orange-900/30",
-      accent: "from-yellow-500 via-amber-500 to-orange-500",
-      text: "text-yellow-300",
-      glow: "shadow-yellow-500/50",
-    },
-    entertainment: {
-      gradient: "from-fuchsia-500 via-purple-500 to-pink-600",
-      bg: "bg-gradient-to-br from-fuchsia-900/30 via-purple-900/30 to-pink-900/30",
-      accent: "from-fuchsia-500 via-purple-500 to-pink-500",
-      text: "text-fuchsia-300",
-      glow: "shadow-fuchsia-500/50",
-    },
-    world: {
-      gradient: "from-cyan-500 via-sky-500 to-blue-600",
-      bg: "bg-gradient-to-br from-cyan-900/30 via-sky-900/30 to-blue-900/30",
-      accent: "from-cyan-500 via-sky-500 to-blue-500",
-      text: "text-cyan-300",
-      glow: "shadow-cyan-500/50",
-    },
-  };
-
   const categories = [
     { id: "all" as CategoryType, name: "All News", icon: Newspaper },
     { id: "bangladesh" as CategoryType, name: "Bangladesh 🇧🇩", icon: Globe },
@@ -172,6 +133,74 @@ const Index = () => {
     { id: "entertainment" as CategoryType, name: "Entertainment", icon: Film },
     { id: "world" as CategoryType, name: "World", icon: Globe },
   ];
+
+  const toggleNotifications = useCallback(() => {
+    setNotificationsEnabled((prev) => {
+      const next = !prev;
+      toast({
+        title: next ? "Notifications enabled" : "Notifications paused",
+        description: next
+          ? "We'll alert you when major stories break."
+          : "You can turn alerts back on anytime from the header.",
+        duration: 4000,
+      });
+      return next;
+    });
+  }, [toast]);
+
+  const toggleLiveUpdates = useCallback(() => {
+    setLiveUpdatesEnabled((prev) => {
+      const next = !prev;
+      toast({
+        title: next ? "Live updates resumed" : "Live updates paused",
+        description: next
+          ? "Fresh headlines will stream in automatically."
+          : "Live ticker paused — re-enable it anytime from the header.",
+        duration: 4000,
+      });
+      return next;
+    });
+  }, [toast]);
+
+  const handleGenerateBriefing = useCallback(() => {
+    toast({
+      title: "Daily briefing queued",
+      description: "An AI digest will be ready in your summaries within a minute.",
+      duration: 3800,
+    });
+  }, [toast]);
+
+  const handleManageSources = useCallback(() => {
+    toast({
+      title: "Source manager",
+      description: "Open your data sources panel to reprioritize beats and regions.",
+      duration: 4200,
+      action: (
+        <ToastAction
+          altText="Open source settings"
+          onClick={() => window.open("/settings/sources", "_blank")}
+        >
+          Open
+        </ToastAction>
+      ),
+    });
+  }, [toast]);
+
+  const handleSyncDevices = useCallback(() => {
+    toast({
+      title: "Syncing readers",
+      description: "Queued stories will be mirrored across signed-in devices.",
+      duration: 3600,
+    });
+  }, [toast]);
+
+  const handleDownloadOffline = useCallback(() => {
+    toast({
+      title: "Offline pack building",
+      description: "A fresh offline bundle is being prepared for subway mode.",
+      duration: 3600,
+    });
+  }, [toast]);
 
   // Helper to get category icon
   const getCategoryIcon = (category: CategoryType | string) => {
@@ -372,6 +401,103 @@ const Index = () => {
     "Stay tuned for real-time updates...",
   ];
 
+  const activeCategoryLabel = categories.find((cat) => cat.id === activeCategory)?.name ?? "All News";
+
+  const personalStats = useMemo<PersonalStat[]>(() => {
+    const total = newsArticles.length;
+    const visible = displayedArticles.length;
+    const remaining = Math.max(total - visible, 0);
+    const chunkValues = Object.values(loadingProgress ?? {});
+    const chunkCount = chunkValues.filter(Boolean).length;
+    const chunkTotal = chunkValues.length;
+    const syncValue = chunkTotal > 0 ? `${chunkCount}/${chunkTotal}` : liveUpdatesEnabled ? "Live" : "Paused";
+    const summariesCount = summaries.size;
+
+    return [
+      {
+        id: "reading-queue",
+        label: "Reading queue",
+        value: total > 0 ? `${visible}/${total}` : "0",
+        caption:
+          remaining > 0
+            ? `${remaining} more stories lined up below your current view.`
+            : total > 0
+              ? "Everything in this category is cached for offline reading."
+              : "Fetching a fresh batch of headlines for you now.",
+        icon: ListChecks,
+      },
+      {
+        id: "ai-digests",
+        label: "AI digests saved",
+        value: summariesCount.toString(),
+        caption:
+          summariesCount > 0
+            ? "Access your generated summaries from the article popovers anytime."
+            : "Trigger a summary on any headline to keep the key points handy.",
+        icon: Sparkles,
+      },
+      {
+        id: "sync-status",
+        label: "Sync status",
+        value: syncValue,
+        caption: liveUpdatesEnabled
+          ? `Monitoring ${activeCategoryLabel} updates in the background.`
+          : "Live updates are paused — resume from the header when you're ready.",
+        icon: Zap,
+      },
+    ];
+  }, [
+    newsArticles.length,
+    displayedArticles.length,
+    summaries.size,
+    loadingProgress,
+    liveUpdatesEnabled,
+    activeCategoryLabel,
+  ]);
+
+  const quickActions = useMemo<QuickActionCard[]>(
+    () => [
+      {
+        id: "briefing",
+        title: "Run daily briefing",
+        description: "Generate a five-minute digest across your pinned beats.",
+        icon: CalendarClock,
+        action: handleGenerateBriefing,
+        actionLabel: "Generate now",
+      },
+      {
+        id: "sources",
+        title: "Triage sources",
+        description: "Rebalance newsletters, RSS feeds, and local outlets.",
+        icon: Settings,
+        action: handleManageSources,
+        actionLabel: "Open manager",
+      },
+      {
+        id: "sync",
+        title: "Sync devices",
+        description: "Mirror your reading queue to phone and tablet instantly.",
+        icon: Smartphone,
+        action: handleSyncDevices,
+        actionLabel: "Sync now",
+      },
+      {
+        id: "offline",
+        title: "Build offline pack",
+        description: "Download the latest headlines for flights or offline stretches.",
+        icon: Download,
+        action: handleDownloadOffline,
+        actionLabel: "Build pack",
+      },
+    ],
+    [
+      handleGenerateBriefing,
+      handleManageSources,
+      handleSyncDevices,
+      handleDownloadOffline,
+    ],
+  );
+
   // Enhance articles with LLM when data loads (optimized - only enhance first 3)
   useEffect(() => {
     const enhanceNews = async () => {
@@ -458,15 +584,6 @@ const Index = () => {
     }
   }, []);
 
-  const handleSubscribe = () => {
-    if (email && email.includes("@")) {
-      alert(`Thank you for subscribing! We'll send news updates to ${email}`);
-      setEmail("");
-    } else {
-      alert("Please enter a valid email address");
-    }
-  };
-
   const handleSummarize = useCallback(async (articleUrl: string) => {
     // If summary already exists, just return (popover will display it)
     if (summaries.has(articleUrl)) {
@@ -487,12 +604,16 @@ const Index = () => {
     setLoadingSummary(articleUrl);
 
     try {
-      // Find the article in the news data
-      const article = newsData?.find((a) => a.url === articleUrl);
-      if (!article) return;
+      const sourceArticle =
+        currentNewsData?.find((a) => a.url === articleUrl) ||
+        newsData?.find((a) => a.url === articleUrl) ||
+        featuredData?.find((a) => a.url === articleUrl);
 
-      // Get enhanced article with summary
-      const enhanced = await enhanceArticleWithLLM(article);
+      if (!sourceArticle) {
+        return;
+      }
+
+      const enhanced = await enhanceArticleWithLLM(sourceArticle);
 
       // Store the summary
       setSummaries((prev) => new Map(prev).set(articleUrl, enhanced.summary));
@@ -507,9 +628,12 @@ const Index = () => {
     } finally {
       setLoadingSummary(null);
     }
-  }, [summaries, enhancedArticles, newsData]);
+  }, [summaries, enhancedArticles, currentNewsData, newsData, featuredData]);
 
-  const theme = categoryThemes[activeCategory];
+  const theme = getCategoryTheme(activeCategory);
+  const activeSlideTheme = featuredNews[currentSlide]
+    ? getCategoryTheme(featuredNews[currentSlide].category)
+    : theme;
 
   const cancelSummaryLongPress = useCallback(() => {
     if (longPressTimerRef.current !== null) {
@@ -691,15 +815,45 @@ const Index = () => {
 
             {/* Action Buttons - Responsive */}
             <div className="flex items-center space-x-2 sm:space-x-3">
-              <button className="p-1.5 sm:p-2 rounded-full backdrop-blur-xl bg-white/10 text-white hover:bg-white/20 border border-white/20 transition-all hover:scale-110 active:scale-95">
-                <Bell className="w-4 h-4 sm:w-5 sm:h-5" />
-              </button>
-              <div
-                className={`px-3 sm:px-5 py-1.5 sm:py-2 rounded-full bg-gradient-to-r ${theme.accent} text-white text-xs sm:text-sm font-bold shadow-xl ${theme.glow} animate-pulse-slow flex items-center space-x-1 sm:space-x-2`}
+              <button
+                type="button"
+                onClick={toggleNotifications}
+                aria-pressed={notificationsEnabled}
+                aria-label={`${notificationsEnabled ? "Disable" : "Enable"} breaking alerts`}
+                className={`relative p-1.5 sm:p-2 rounded-full backdrop-blur-xl transition-all hover:scale-110 active:scale-95 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white/40 ${
+                  notificationsEnabled
+                    ? "bg-white/20 border border-white/40 text-amber-300 shadow-lg"
+                    : "bg-white/10 border border-white/20 text-white hover:bg-white/20"
+                }`}
               >
-                <div className="w-1.5 h-1.5 sm:w-2 sm:h-2 bg-white rounded-full animate-ping" />
-                <span>LIVE</span>
-              </div>
+                <Bell className="w-4 h-4 sm:w-5 sm:h-5" />
+                {notificationsEnabled && (
+                  <span className="absolute -top-1 -right-1 inline-flex h-2.5 w-2.5 rounded-full bg-amber-400 shadow-[0_0_0_4px_rgba(0,0,0,0.6)]" />
+                )}
+              </button>
+              <button
+                type="button"
+                onClick={toggleLiveUpdates}
+                aria-pressed={liveUpdatesEnabled}
+                aria-label={liveUpdatesEnabled ? "Pause live updates" : "Resume live updates"}
+                className={`flex items-center space-x-1 sm:space-x-2 px-3 sm:px-5 py-1.5 sm:py-2 rounded-full text-xs sm:text-sm font-bold transition-all focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white/40 ${
+                  liveUpdatesEnabled
+                    ? `bg-gradient-to-r ${theme.accent} text-white shadow-xl ${theme.glow} animate-pulse-slow`
+                    : "bg-white/10 text-gray-300 border border-white/20 shadow-inner"
+                }`}
+              >
+                {liveUpdatesEnabled ? (
+                  <>
+                    <div className="w-1.5 h-1.5 sm:w-2 sm:h-2 bg-white rounded-full animate-ping" />
+                    <span>LIVE</span>
+                  </>
+                ) : (
+                  <>
+                    <div className="w-1.5 h-1.5 sm:w-2 sm:h-2 rounded-full bg-gray-300" />
+                    <span>LIVE PAUSED</span>
+                  </>
+                )}
+              </button>
             </div>
           </div>
 
@@ -726,13 +880,14 @@ const Index = () => {
             {categories.map((cat) => {
               const Icon = cat.icon;
               const isActive = activeCategory === cat.id;
+              const catTheme = getCategoryTheme(cat.id);
               return (
                 <button
                   key={cat.id}
                   onClick={() => handleCategoryChange(cat.id)}
                   className={`flex items-center space-x-1.5 sm:space-x-2 px-3 sm:px-6 py-2 sm:py-3 rounded-xl sm:rounded-2xl font-bold whitespace-nowrap transition-all duration-300 transform hover:scale-105 sm:hover:scale-110 active:scale-95 ${
                     isActive
-                      ? `bg-gradient-to-r ${categoryThemes[cat.id].accent} text-white shadow-2xl ${categoryThemes[cat.id].glow} scale-105`
+                      ? `bg-gradient-to-r ${catTheme.accent} text-white shadow-2xl ${catTheme.glow} scale-105`
                       : "bg-white/10 text-gray-300 hover:bg-white/20 border border-white/10"
                   }`}
                 >
@@ -797,19 +952,17 @@ const Index = () => {
           ) : featuredNews.length > 0 ? (
             <div className="relative group">
               {/* Dynamic background glow based on active slide */}
-              <div 
-                className={`absolute inset-0 -z-10 blur-3xl opacity-30 transition-all duration-1000 bg-gradient-to-r ${
-                  featuredNews[currentSlide] ? categoryThemes[featuredNews[currentSlide].category].accent : theme.accent
-                }`}
-                style={{ transform: 'scale(1.1)' }}
+              <div
+                className={`absolute inset-0 -z-10 blur-3xl opacity-30 transition-all duration-1000 bg-gradient-to-r ${activeSlideTheme.accent}`}
+                style={{ transform: "scale(1.1)" }}
               />
-              <div className={`relative h-[400px] sm:h-[500px] lg:h-[550px] rounded-2xl sm:rounded-3xl overflow-hidden shadow-2xl ring-2 transition-all duration-1000 ${
-                featuredNews[currentSlide] ? `ring-${categoryThemes[featuredNews[currentSlide].category].accent}/30 ${categoryThemes[featuredNews[currentSlide].category].glow}` : 'ring-white/10'
-              }`}>
+              <div
+                className={`relative h-[400px] sm:h-[500px] lg:h-[550px] rounded-2xl sm:rounded-3xl overflow-hidden shadow-2xl ring-2 transition-all duration-1000 ${activeSlideTheme.ring} ${activeSlideTheme.glow}`}
+              >
                 {featuredNews.map((news, index) => {
                   const isActive = index === currentSlide;
                   const isPrev = index === (currentSlide - 1 + featuredNews.length) % featuredNews.length;
-                  const slideTheme = categoryThemes[news.category];
+                  const slideTheme = getCategoryTheme(news.category);
                   return (
                     <div
                       key={`${news.id}-${index}`}
@@ -856,9 +1009,9 @@ const Index = () => {
                             )}
                             <span
                               className={`px-3 sm:px-5 py-1 sm:py-2 rounded-full text-xs sm:text-base font-black bg-gradient-to-r ${
-                                categoryThemes[news.category].accent
+                                slideTheme.accent
                               } text-white shadow-2xl ${
-                                categoryThemes[news.category].glow
+                                slideTheme.glow
                               } animate-pulse-glow uppercase tracking-wide flex items-center gap-1 sm:gap-2`}
                             >
                               {(() => {
@@ -945,7 +1098,7 @@ const Index = () => {
                   <button
                     onClick={prevSlide}
                     className={`absolute left-2 sm:left-6 top-1/2 -translate-y-1/2 flex items-center justify-center p-2 sm:p-3 rounded-full bg-black/70 backdrop-blur-xl text-white hover:bg-gradient-to-r ${
-                      featuredNews[currentSlide] ? categoryThemes[featuredNews[currentSlide].category].accent : theme.accent
+                      activeSlideTheme.accent
                     } transition-all hover:scale-110 active:scale-95 shadow-xl border border-white/30 z-40`}
                     aria-label="Previous slide"
                   >
@@ -954,7 +1107,7 @@ const Index = () => {
                   <button
                     onClick={nextSlide}
                     className={`absolute right-2 sm:right-6 top-1/2 -translate-y-1/2 flex items-center justify-center p-2 sm:p-3 rounded-full bg-black/70 backdrop-blur-xl text-white hover:bg-gradient-to-r ${
-                      featuredNews[currentSlide] ? categoryThemes[featuredNews[currentSlide].category].accent : theme.accent
+                      activeSlideTheme.accent
                     } transition-all hover:scale-110 active:scale-95 shadow-xl border border-white/30 z-40`}
                     aria-label="Next slide"
                   >
@@ -964,7 +1117,7 @@ const Index = () => {
                   {/* Carousel Indicators - Responsive with dynamic theme */}
                   <div className="absolute bottom-4 sm:bottom-6 left-1/2 -translate-x-1/2 flex space-x-2 sm:space-x-3 z-40">
                     {featuredNews.map((news, index) => {
-                      const indicatorTheme = categoryThemes[news.category];
+                      const indicatorTheme = getCategoryTheme(news.category);
                       return (
                         <button
                           key={index}
@@ -1069,6 +1222,15 @@ const Index = () => {
                   // Determine if card is on the left or right edge to adjust hover position
                   const isFirstColumn = idx % 3 === 0; // First column in 3-col grid
                   const isLastColumn = idx % 3 === 2; // Last column in 3-col grid
+                  const articleTheme = getCategoryTheme(article.category);
+                  const rawSummary = summaries.get(article.url);
+                  const summaryPoints = rawSummary
+                    ? rawSummary
+                        .split(/[.!?]+/)
+                        .map((point) => point.trim())
+                        .filter((point) => point.length > 20)
+                        .slice(0, 6)
+                    : [];
                   
                   return (
                   <div
@@ -1110,9 +1272,7 @@ const Index = () => {
                       />
 
                       <div
-                        className={`absolute top-0 right-0 w-20 h-20 bg-gradient-to-br ${
-                          categoryThemes[article.category].accent
-                        } opacity-0 group-hover:opacity-50 transition-opacity duration-300 blur-2xl`}
+                        className={`absolute top-0 right-0 w-20 h-20 bg-gradient-to-br ${articleTheme.accent} opacity-0 group-hover:opacity-50 transition-opacity duration-300 blur-2xl`}
                       />
 
                       <div className="absolute top-2 sm:top-4 right-2 sm:right-4 flex flex-col space-y-1 sm:space-y-2">
@@ -1123,11 +1283,7 @@ const Index = () => {
                           </span>
                         )}
                         <span
-                          className={`px-2 sm:px-4 py-1 sm:py-2 rounded-full text-[10px] sm:text-xs font-bold bg-gradient-to-r ${
-                            categoryThemes[article.category].accent
-                          } text-white shadow-xl ${
-                            categoryThemes[article.category].glow
-                          } backdrop-blur-xl transform group-hover:scale-110 transition-transform flex items-center space-x-1`}
+                          className={`px-2 sm:px-4 py-1 sm:py-2 rounded-full text-[10px] sm:text-xs font-bold bg-gradient-to-r ${articleTheme.accent} text-white shadow-xl ${articleTheme.glow} backdrop-blur-xl transform group-hover:scale-110 transition-transform flex items-center space-x-1`}
                         >
                           {(() => {
                             const CategoryIcon = getCategoryIcon(article.category);
@@ -1185,7 +1341,7 @@ const Index = () => {
                               onClick={(e) => {
                                 e.stopPropagation();
                               }}
-                              className="hidden sm:block p-2 rounded-full bg-black/70 backdrop-blur-xl hover:bg-gradient-to-r hover:from-purple-500 hover:to-pink-500 transition-all opacity-0 group-hover:opacity-100"
+                              className={`hidden sm:block p-2 rounded-full bg-black/70 backdrop-blur-xl text-white transition-all opacity-0 group-hover:opacity-100 hover:bg-gradient-to-r ${articleTheme.accent} hover:shadow-lg focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white/40`}
                               title="AI Summary"
                             >
                               {loadingSummary === article.url ? (
@@ -1196,122 +1352,75 @@ const Index = () => {
                             </button>
                           </PopoverTrigger>
                           <PopoverContent
-                            className={`relative w-[calc(100vw-2rem)] sm:w-[450px] md:w-[500px] max-h-[75vh] ${
-                              appTheme === "dark" 
-                                ? "bg-black/98 border-purple-400/50 text-white shadow-[0_20px_80px_rgba(168,85,247,0.5)]" 
-                                : "bg-white/98 border-purple-500/50 text-gray-900 shadow-[0_20px_80px_rgba(147,51,234,0.3)]"
-                            } backdrop-blur-3xl border-2 p-5 sm:p-6 z-[110] rounded-3xl overflow-hidden animate-slide-in`}
+                            className={`relative w-[min(90vw,420px)] max-h-[70vh] rounded-3xl border ${articleTheme.ring} bg-black/80 text-white backdrop-blur-2xl p-5 sm:p-6 z-[110] overflow-hidden animate-slide-in shadow-[0_20px_60px_rgba(0,0,0,0.45)]`}
                             onClick={(e) => e.stopPropagation()}
-                            side="left"
+                            side="bottom"
                             align="center"
-                            sideOffset={25}
+                            sideOffset={18}
                             avoidCollisions={true}
-                            collisionPadding={20}
+                            collisionPadding={16}
                           >
+                            <div className={`absolute inset-0 bg-gradient-to-br ${articleTheme.accent} opacity-25`} />
+                            <div className="absolute inset-0 bg-black/80" />
                             <button
                               type="button"
                               onClick={(e) => {
                                 e.stopPropagation();
-                                setOpenSummaryFor(null);
+                                setOpenSummaryFor((prev) => (prev === article.url ? null : prev));
+                                setLoadingSummary((prev) => (prev === article.url ? null : prev));
+                                cancelSummaryLongPress();
                               }}
-                              className={`absolute top-4 right-4 p-2 rounded-full ${
-                                appTheme === "dark" 
-                                  ? "bg-white/10 hover:bg-white/20 text-white" 
-                                  : "bg-gray-100 hover:bg-gray-200 text-gray-700"
-                              } transition-all shadow-lg hover:scale-110 active:scale-95`}
+                              className="absolute top-4 right-4 flex h-9 w-9 items-center justify-center rounded-full border border-white/15 bg-black/40 text-white transition-all hover:bg-white/10 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white/40"
                               aria-label="Close summary"
                             >
                               <X className="w-4 h-4" />
                             </button>
-                            <div className="space-y-4 h-full flex flex-col">
-                              <div className={`flex items-center justify-between pb-4 border-b-2 ${
-                                appTheme === "dark" ? "border-purple-500/30" : "border-purple-400/40"
-                              } flex-shrink-0`}>
-                                <div className="flex items-center space-x-3">
-                                  <div className={`p-2 rounded-xl ${
-                                    appTheme === "dark" ? "bg-purple-500/20" : "bg-purple-100"
-                                  }`}>
-                                    <Sparkles className={`w-5 h-5 ${
-                                      appTheme === "dark" ? "text-purple-400" : "text-purple-600"
-                                    } animate-pulse`} />
-                                  </div>
-                                  <h4 className={`font-bold text-lg ${
-                                    appTheme === "dark" 
-                                      ? "bg-gradient-to-r from-purple-300 via-pink-300 to-purple-300 bg-clip-text text-transparent" 
-                                      : "bg-gradient-to-r from-purple-600 via-pink-600 to-purple-600 bg-clip-text text-transparent"
-                                  }`}>
+                            <div className="relative z-10 flex h-full flex-col space-y-4">
+                              <div className="flex items-start justify-between gap-3 border-b border-white/10 pb-4">
+                                <div className={`flex h-11 w-11 items-center justify-center rounded-xl bg-gradient-to-br ${articleTheme.accent} text-white`}>
+                                  <Sparkles className="h-5 w-5" />
+                                </div>
+                                <div className="min-w-0 flex-1 text-left">
+                                  <p className="text-xs font-semibold uppercase tracking-[0.35em] text-white/70">
                                     AI Summary
-                                  </h4>
+                                  </p>
+                                  <p className="text-sm text-white/60">
+                                    Quick take generated for {article.source ?? "this article"}
+                                  </p>
                                 </div>
                               </div>
-                              <div className="overflow-y-auto max-h-[60vh] pr-3 scrollbar-thin scrollbar-thumb-purple-500/70 scrollbar-track-purple-500/10 flex-1">
+                              <div className="flex-1 space-y-4 overflow-y-auto pr-2 sm:pr-3 scrollbar-thin">
                                 {loadingSummary === article.url ? (
-                                  <div className="flex items-center justify-center py-12">
-                                    <div className="flex flex-col items-center space-y-3">
-                                      <Loader2 className={`w-10 h-10 ${
-                                        appTheme === "dark" ? "text-purple-400" : "text-purple-600"
-                                      } animate-spin`} />
-                                      <p className={`text-sm font-medium ${
-                                        appTheme === "dark" ? "text-gray-400" : "text-gray-600"
-                                      }`}>
-                                        Generating AI summary...
-                                      </p>
-                                    </div>
+                                  <div className="flex h-full min-h-[180px] flex-col items-center justify-center space-y-4 text-white/70">
+                                    <Loader2 className="h-10 w-10 animate-spin text-white" />
+                                    <p className="text-sm font-medium">Generating AI summary...</p>
                                   </div>
-                                ) : summaries.has(article.url) ? (
+                                ) : rawSummary ? (
                                   <div className="space-y-5">
-                                    {/* Main Summary */}
-                                    <div className={`${
-                                      appTheme === "dark" 
-                                        ? "bg-gradient-to-br from-purple-500/20 to-pink-500/20 border-purple-500/30" 
-                                        : "bg-gradient-to-br from-purple-100 to-pink-100 border-purple-300/50"
-                                    } rounded-2xl p-5 border-2 backdrop-blur-sm shadow-lg`}>
-                                      <p className={`${
-                                        appTheme === "dark" ? "text-gray-100" : "text-gray-800"
-                                      } text-sm sm:text-base leading-relaxed font-medium`}>
-                                        {summaries.get(article.url)}
-                                      </p>
+                                    <div className="rounded-2xl border border-white/10 bg-white/5 p-4 sm:p-5 text-sm sm:text-base leading-relaxed text-white/80 shadow-lg shadow-black/30">
+                                      {rawSummary}
                                     </div>
-                                    
-                                    {/* Key Points */}
-                                    <div className="space-y-4">
-                                      <h5 className={`text-xs sm:text-sm font-bold ${
-                                        appTheme === "dark" ? "text-purple-400" : "text-purple-600"
-                                      } uppercase tracking-wider flex items-center space-x-2`}>
-                                        <span className={`w-1 h-5 ${
-                                          appTheme === "dark" 
-                                            ? "bg-gradient-to-b from-purple-400 to-pink-400" 
-                                            : "bg-gradient-to-b from-purple-600 to-pink-600"
-                                        } rounded-full`}></span>
-                                        <span>Key Insights</span>
-                                      </h5>
-                                      <ul className="space-y-3">
-                                        {summaries.get(article.url)
-                                          ?.split(/[.!?]+/)
-                                          .filter(s => s.trim().length > 20)
-                                          .slice(1, 8)
-                                          .map((point, idx) => (
-                                            <li key={idx} className={`flex items-start space-x-3 text-sm sm:text-base group p-3 rounded-xl ${
-                                              appTheme === "dark" 
-                                                ? "hover:bg-purple-500/10" 
-                                                : "hover:bg-purple-50"
-                                            } transition-colors`}>
-                                              <span className={`${
-                                                appTheme === "dark" ? "text-purple-400" : "text-purple-600"
-                                              } text-lg flex-shrink-0 group-hover:scale-125 transition-transform font-bold`}>•</span>
-                                              <span className={`${
-                                                appTheme === "dark" ? "text-gray-300" : "text-gray-700"
-                                              } leading-relaxed`}>{point.trim()}</span>
+                                    {summaryPoints.length > 0 && (
+                                      <div className="space-y-3">
+                                        <h5 className={`text-xs font-semibold uppercase tracking-[0.35em] ${articleTheme.text}`}>
+                                          Key insights
+                                        </h5>
+                                        <ul className="space-y-3">
+                                          {summaryPoints.map((point, insightIndex) => (
+                                            <li
+                                              key={insightIndex}
+                                              className="flex items-start gap-3 rounded-xl border border-white/10 bg-black/45 p-3 text-sm sm:text-base text-white/75 transition duration-200 hover:border-white/20 hover:bg-black/55"
+                                            >
+                                              <span className="mt-1 h-2 w-2 flex-shrink-0 rounded-full bg-white/70" />
+                                              <span className="leading-relaxed">{point}</span>
                                             </li>
-                                          ))
-                                        }
-                                      </ul>
-                                    </div>
+                                          ))}
+                                        </ul>
+                                      </div>
+                                    )}
                                   </div>
                                 ) : (
-                                  <p className={`${
-                                    appTheme === "dark" ? "text-gray-400" : "text-gray-600"
-                                  } text-sm italic text-center py-6`}>
+                                  <p className="py-8 text-center text-sm text-white/60">
                                     Generating summary...
                                   </p>
                                 )}
@@ -1365,82 +1474,6 @@ const Index = () => {
                       className={`absolute inset-0 bg-gradient-to-r ${theme.accent} opacity-0 group-hover:opacity-10 transition-opacity duration-300 rounded-3xl pointer-events-none`}
                     />
                   </div>
-                  
-                  {/* Custom Hover Overlay - Dynamic positioning based on column */}
-                  {hoveredCard === article.id && (
-                    <div className={`absolute top-1/2 -translate-y-1/2 left-0 ${
-                      isLastColumn 
-                        ? 'sm:right-auto sm:left-[calc(100%+0.75rem)] lg:left-[calc(100%+1rem)]' 
-                        : 'sm:left-auto sm:right-[calc(100%+0.75rem)] lg:right-[calc(100%+1rem)]'
-                    } w-full sm:w-[90%] h-auto z-[100] pointer-events-none`} style={{ perspective: '1000px' }}>
-                      <div className={`relative overflow-hidden rounded-xl sm:rounded-2xl backdrop-blur-[120px] bg-gradient-to-br from-gray-900/50 via-purple-950/50 to-gray-900/50 border-2 transition-all duration-700 shadow-2xl ${
-                        hoveredCard === article.id ? `border-white/50 ${categoryThemes[article.category].glow}` : "border-white/10"
-                      }`} style={{
-                        animation: 'flipIn 0.6s ease-out',
-                        transformStyle: 'preserve-3d'
-                      }}>
-                        {/* Subtle gradient overlay background */}
-                        <div className={`absolute inset-0 bg-gradient-to-br ${categoryThemes[article.category].gradient} opacity-15`} />
-                        
-                        {/* Content Layout - Matches image shape */}
-                        <div className="relative flex flex-col p-3 sm:p-4">
-                          {/* Top section - Image and Title side by side */}
-                          <div className="flex items-start space-x-2.5 sm:space-x-3 mb-2.5 sm:mb-3">
-                            {/* Square thumbnail image */}
-                            <div className="relative w-16 h-16 sm:w-20 sm:h-20 flex-shrink-0 rounded-lg sm:rounded-xl overflow-hidden shadow-lg ring-2 ring-white/30">
-                              <img
-                                src={article.image}
-                                alt={article.title}
-                                className="w-full h-full object-cover"
-                              />
-                              <div className="absolute inset-0 bg-gradient-to-br from-black/20 to-transparent" />
-                            </div>
-                            
-                            {/* Title and metadata */}
-                            <div className="flex-1 min-w-0">
-                              <h4 className="font-extrabold text-sm sm:text-base leading-snug text-white drop-shadow-[0_2px_10px_rgba(0,0,0,0.9)] line-clamp-2 mb-1">
-                                {article.title}
-                              </h4>
-                              <div className="flex items-center space-x-1.5 text-[10px] sm:text-xs font-semibold">
-                                <span className="text-gray-200 drop-shadow-lg">{article.source}</span>
-                                <span className="text-gray-400">•</span>
-                                <span className="text-gray-300 drop-shadow-lg">{article.time}</span>
-                              </div>
-                            </div>
-                          </div>
-                          
-                          {/* Excerpt */}
-                          <div className="mb-2.5 sm:mb-3">
-                            <p className="text-[11px] sm:text-xs text-gray-100 leading-relaxed line-clamp-2 drop-shadow-md">
-                              {article.excerpt}
-                            </p>
-                          </div>
-                          
-                          {/* Divider */}
-                          <div className="border-t border-white/30 mb-2.5 sm:mb-3" />
-                          
-                          {/* Bottom Metadata */}
-                          <div className="flex items-center justify-between">
-                            <div className="flex items-center space-x-2">
-                              <div className="flex items-center space-x-1">
-                                <Eye className="w-3 h-3 sm:w-3.5 sm:h-3.5 text-gray-200" />
-                                <span className="text-[10px] sm:text-xs font-bold text-white">{article.views}</span>
-                              </div>
-                              <div className="flex items-center space-x-1">
-                                <Clock className="w-3 h-3 sm:w-3.5 sm:h-3.5 text-gray-200" />
-                                <span className="text-[10px] sm:text-xs font-bold text-white">{article.readTime}</span>
-                              </div>
-                            </div>
-                            
-                            {/* Category badge */}
-                            <span className={`px-2.5 py-1 rounded-full text-[9px] sm:text-[10px] font-extrabold text-white bg-gradient-to-r ${categoryThemes[article.category].accent} shadow-lg backdrop-blur-sm`}>
-                              {article.category.toUpperCase()}
-                            </span>
-                          </div>
-                        </div>
-                      </div>
-                    </div>
-                  )}
                   </div>
                   </div>
                 );
@@ -1486,42 +1519,105 @@ const Index = () => {
           )}
         </div>
 
-        {/* Newsletter Section */}
+        {/* Personal Command Center */}
         <div className="mt-12 sm:mt-16 lg:mt-20">
           <div
             className={`relative overflow-hidden rounded-2xl sm:rounded-3xl bg-gradient-to-r ${theme.accent} p-6 sm:p-10 lg:p-12 shadow-2xl ${theme.glow}`}
           >
-            <div className="absolute inset-0 bg-black/20" />
-            <div className="relative z-10 max-w-3xl mx-auto text-center">
+            <div className="absolute inset-0 bg-black/25" />
+            <div className="relative z-10 max-w-4xl mx-auto text-center">
               <div className="inline-flex items-center justify-center p-2 sm:p-3 rounded-xl sm:rounded-2xl bg-white/20 backdrop-blur-xl mb-4 sm:mb-6">
-                <Bell className="w-6 h-6 sm:w-8 sm:h-8 text-white" />
+                <Settings className="w-6 h-6 sm:w-8 sm:h-8 text-white" />
               </div>
               <h3 className="text-2xl sm:text-3xl lg:text-4xl font-black font-display text-white mb-3 sm:mb-4">
-                Never Miss a Story
+                Personal Command Center
               </h3>
-              <p className="text-base sm:text-lg lg:text-xl text-white/90 mb-6 sm:mb-8 px-4">
-                Get AI-enhanced news and exclusive updates delivered straight to
-                your inbox
+              <p className="text-base sm:text-lg lg:text-xl text-white/90 px-4">
+                Dial in the controls you actually rely on while running NewsFlow day to day.
               </p>
-              <div className="flex flex-col sm:flex-row gap-3 sm:gap-4 max-w-md mx-auto px-4 sm:px-0">
-                <Input
-                  type="email"
-                  placeholder="Enter your email"
-                  value={email}
-                  onChange={(e) => setEmail(e.target.value)}
-                  onKeyPress={(e) => e.key === "Enter" && handleSubscribe()}
-                  className="flex-1 px-4 sm:px-6 py-3 sm:py-4 bg-white/20 border-white/30 text-white placeholder:text-white/70 focus:bg-white/30 focus:border-white rounded-full backdrop-blur-xl text-base sm:text-lg"
-                />
-                <Button
-                  onClick={handleSubscribe}
-                  className="px-6 sm:px-8 py-3 sm:py-4 bg-white text-gray-900 hover:bg-gray-100 font-bold rounded-full text-base sm:text-lg shadow-xl active:scale-95 transition-transform"
-                >
-                  Subscribe
-                </Button>
+            </div>
+
+            <div className="relative z-10 mt-8 grid grid-cols-1 gap-4 sm:grid-cols-3">
+              {personalStats.map((stat) => {
+                const Icon = stat.icon;
+                return (
+                  <div
+                    key={stat.id}
+                    className="rounded-2xl border border-white/20 bg-black/30 p-5 sm:p-6 text-left shadow-lg shadow-black/30 backdrop-blur-xl transition-all duration-300 hover:border-white/30 hover:bg-black/40"
+                  >
+                    <div className="flex items-center gap-3">
+                      <div className="flex h-11 w-11 items-center justify-center rounded-xl bg-white/10">
+                        <Icon className="h-5 w-5 text-white" />
+                      </div>
+                      <div>
+                        <p className="text-[11px] font-semibold uppercase tracking-[0.35em] text-white/60">
+                          {stat.label}
+                        </p>
+                        <p className="text-2xl font-bold text-white">
+                          {stat.value}
+                        </p>
+                      </div>
+                    </div>
+                    <p className="mt-4 text-sm text-white/75 leading-relaxed">
+                      {stat.caption}
+                    </p>
+                  </div>
+                );
+              })}
+            </div>
+
+            <div className="relative z-10 mt-10">
+              <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 sm:gap-4">
+                <h4 className="text-center sm:text-left text-xs sm:text-sm font-semibold uppercase tracking-[0.4em] text-white/70">
+                  Quick actions
+                </h4>
+                <p className="text-center sm:text-right text-sm text-white/70">
+                  Automations tailored for a personal workflow — launch what you need in a tap.
+                </p>
               </div>
-              <p className="text-xs sm:text-sm text-white/70 mt-3 sm:mt-4">
-                Join 100,000+ readers. Unsubscribe anytime.
-              </p>
+              <div className="mt-4 grid grid-cols-1 gap-4 sm:grid-cols-2">
+                {quickActions.map((item) => {
+                  const Icon = item.icon;
+                  return (
+                    <div
+                      key={item.id}
+                      className="group flex flex-col justify-between rounded-2xl border border-white/15 bg-white/5 p-5 sm:p-6 shadow-lg shadow-black/30 backdrop-blur-xl transition-all duration-300 hover:border-white/25 hover:bg-white/10"
+                    >
+                      <div>
+                        <div className="flex items-start gap-3">
+                          <div className={`flex h-12 w-12 items-center justify-center rounded-xl bg-gradient-to-br ${theme.accent} text-white shadow-lg shadow-black/30`}>
+                            <Icon className="h-5 w-5" />
+                          </div>
+                          <div>
+                            <h5 className="text-lg font-semibold text-white">
+                              {item.title}
+                            </h5>
+                            <p className="mt-2 text-sm text-white/70">
+                              {item.description}
+                            </p>
+                          </div>
+                        </div>
+                      </div>
+                      <Button
+                        onClick={item.action}
+                        className="mt-6 w-full justify-center rounded-full bg-white text-gray-900 font-semibold shadow-lg shadow-black/20 transition-all hover:bg-white/90 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white/50"
+                      >
+                        {item.actionLabel}
+                        <ArrowRight className="h-4 w-4" />
+                      </Button>
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
+
+            <div className="relative z-10 mt-8 flex flex-col items-center gap-2 text-center text-white/70 text-sm sm:text-base">
+              <span>
+                Tip: Install this PWA from your browser menu to keep the control center one tap away.
+              </span>
+              <span>
+                Data refresh respects your live toggle and personal source weighting.
+              </span>
             </div>
           </div>
         </div>

@@ -61,6 +61,7 @@ export interface CategoryTheme {
   accent: string;
   text: string;
   glow: string;
+  ring: string;
 }
 
 // Live Scores interfaces
