@@ -74,6 +74,8 @@ const Index = () => {
   const [loadingSummary, setLoadingSummary] = useState<string | null>(null);
   const [summaries, setSummaries] = useState<Map<string, string>>(new Map());
   const [openSummaryFor, setOpenSummaryFor] = useState<string | null>(null);
+  const longPressTimerRef = useRef<number | null>(null);
+  const longPressTriggeredRef = useRef(false);
   
   // Lazy loading state
   const [displayCount, setDisplayCount] = useState(6); // Show 1/5th initially (30 articles / 5 = 6)
@@ -430,7 +432,7 @@ const Index = () => {
     }
   };
 
-  const handleSummarize = async (articleUrl: string) => {
+  const handleSummarize = useCallback(async (articleUrl: string) => {
     // If summary already exists, just return (popover will display it)
     if (summaries.has(articleUrl)) {
       return;
@@ -470,9 +472,52 @@ const Index = () => {
     } finally {
       setLoadingSummary(null);
     }
-  };
+  }, [summaries, enhancedArticles, newsData]);
 
   const theme = categoryThemes[activeCategory];
+
+  const cancelSummaryLongPress = useCallback(() => {
+    if (longPressTimerRef.current !== null) {
+      window.clearTimeout(longPressTimerRef.current);
+      longPressTimerRef.current = null;
+    }
+  }, []);
+
+  const startSummaryLongPress = useCallback(
+    (article: NewsArticle) => {
+      cancelSummaryLongPress();
+      longPressTriggeredRef.current = false;
+      longPressTimerRef.current = window.setTimeout(() => {
+        longPressTriggeredRef.current = true;
+        longPressTimerRef.current = null;
+        if (article.url) {
+          setOpenSummaryFor(article.url);
+          handleSummarize(article.url);
+        }
+      }, 2000);
+    },
+    [cancelSummaryLongPress, handleSummarize]
+  );
+
+  const handleCardClick = useCallback(
+    (article: NewsArticle) => {
+      if (longPressTriggeredRef.current) {
+        longPressTriggeredRef.current = false;
+        cancelSummaryLongPress();
+        return;
+      }
+
+      handleArticleClick(article.url, article.title);
+    },
+    [cancelSummaryLongPress, handleArticleClick]
+  );
+
+  useEffect(() => {
+    return () => {
+      cancelSummaryLongPress();
+      longPressTriggeredRef.current = false;
+    };
+  }, [cancelSummaryLongPress]);
 
   return (
     <div
@@ -912,7 +957,11 @@ const Index = () => {
                   id={`article-${article.id}`}
                   onMouseEnter={() => setHoveredCard(article.id)}
                   onMouseLeave={() => setHoveredCard(null)}
-                  onClick={() => handleArticleClick(article.url)}
+                  onClick={() => handleCardClick(article)}
+                  onTouchStart={() => startSummaryLongPress(article)}
+                  onTouchEnd={cancelSummaryLongPress}
+                  onTouchCancel={cancelSummaryLongPress}
+                  onTouchMove={cancelSummaryLongPress}
                   className="group cursor-pointer scroll-mt-24"
                   style={{
                     animation: `fadeInUp 0.6s ease-out ${idx * 0.1}s both`,
@@ -1020,7 +1069,7 @@ const Index = () => {
                               onClick={(e) => {
                                 e.stopPropagation();
                               }}
-                              className="p-2 rounded-full bg-black/70 backdrop-blur-xl hover:bg-gradient-to-r hover:from-purple-500 hover:to-pink-500 transition-all opacity-0 group-hover:opacity-100"
+                              className="hidden sm:block p-2 rounded-full bg-black/70 backdrop-blur-xl hover:bg-gradient-to-r hover:from-purple-500 hover:to-pink-500 transition-all opacity-0 group-hover:opacity-100"
                               title="AI Summary"
                             >
                               {loadingSummary === article.url ? (
