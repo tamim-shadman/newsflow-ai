@@ -422,11 +422,19 @@ export async function fetchFeaturedFromAllCategories(): Promise<NewsAPIArticle[]
       }
     });
 
-    console.log(`✅ Fetched ${featuredArticles.length} featured articles from different categories`);
-    console.log('📋 Carousel URLs:', featuredArticles.map((a, i) => `[${i}] ${a.url}`));
+    const uniqueArticles = featuredArticles.filter((article, index, arr) =>
+      article.url ? arr.findIndex(candidate => candidate.url === article.url) === index : true
+    );
+
+    if (uniqueArticles.length !== featuredArticles.length) {
+      console.warn(`♻️ Removed ${featuredArticles.length - uniqueArticles.length} duplicate carousel articles by URL.`);
+    }
+
+    console.log(`✅ Fetched ${uniqueArticles.length} featured articles from different categories`);
+    console.log('📋 Carousel URLs:', uniqueArticles.map((a, i) => `[${i}] ${a.url}`));
     
     // If we have no articles, use static fallback (each category has unique articles)
-    if (featuredArticles.length === 0) {
+    if (uniqueArticles.length === 0) {
       console.log('🆘 Using complete static fallback for featured articles');
       const fallbackArticles = categories.flatMap(cat => getFallbackNews(cat, 1));
       setCache(cacheKey, fallbackArticles.slice(0, 6));
@@ -434,9 +442,9 @@ export async function fetchFeaturedFromAllCategories(): Promise<NewsAPIArticle[]
     }
     
     // Cache the results
-    setCache(cacheKey, featuredArticles);
+    setCache(cacheKey, uniqueArticles);
     
-    return featuredArticles;
+    return uniqueArticles;
   } catch (error) {
     console.error("❌ Error fetching featured from all categories:", error);
     

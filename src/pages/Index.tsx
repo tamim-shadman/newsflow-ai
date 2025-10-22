@@ -295,9 +295,17 @@ const Index = () => {
       return convertToNewsArticle(article, category);
     });
     
-    console.log('🎠 Final carousel NewsArticle URLs:', converted.map((a, i) => `[${i}] ${a.url}`));
+    const uniqueByUrl = converted.filter((article, idx, arr) =>
+      article.url ? arr.findIndex((candidate) => candidate.url === article.url) === idx : true
+    );
     
-    return converted;
+    if (uniqueByUrl.length !== converted.length) {
+      console.warn(`♻️ Carousel deduplicated ${converted.length - uniqueByUrl.length} duplicate articles by URL.`);
+    }
+
+    console.log('🎠 Final carousel NewsArticle URLs:', uniqueByUrl.map((a, i) => `[${i}] ${a.url}`));
+    
+    return uniqueByUrl;
   }, [featuredData, convertToNewsArticle]);
 
   // Use trending data when in trending category, otherwise use regular news data
@@ -679,7 +687,7 @@ const Index = () => {
               <div className="relative h-[400px] sm:h-[500px] lg:h-[550px] rounded-2xl sm:rounded-3xl overflow-hidden shadow-2xl ring-2 ring-white/10">
                 {featuredNews.map((news, index) => (
                   <div
-                    key={news.id}
+                    key={`${news.id}-${index}`}
                     onClick={() => handleArticleClick(news.url, news.title)}
                     className={`absolute inset-0 transition-all duration-1000 transform cursor-pointer ${
                       index === currentSlide
@@ -690,6 +698,7 @@ const Index = () => {
                         ? "opacity-0 scale-95 -rotate-2 z-10 pointer-events-none"
                         : "opacity-0 scale-105 rotate-2 z-10 pointer-events-none"
                     }`}
+                    style={{ pointerEvents: index === currentSlide ? "auto" : "none" }}
                   >
                     <img
                       src={news.image}
