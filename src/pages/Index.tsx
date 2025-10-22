@@ -684,19 +684,11 @@ const Index = () => {
                     key={news.id}
                     onClick={() => {
                       console.log(`🖱️ Carousel click - Index ${index}: ${news.title.substring(0, 40)}...`);
-                      const articleElement = document.getElementById(`article-${news.id}`);
-                      if (articleElement) {
-                        articleElement.scrollIntoView({ 
-                          behavior: 'smooth', 
-                          block: 'center' 
-                        });
-                        // Highlight the card briefly
-                        articleElement.classList.add('ring-4', 'ring-yellow-400', 'ring-opacity-75');
-                        setTimeout(() => {
-                          articleElement.classList.remove('ring-4', 'ring-yellow-400', 'ring-opacity-75');
-                        }, 2000);
+                      console.log(`📍 Opening URL: ${news.url}`);
+                      if (news.url) {
+                        window.open(news.url, "_blank", "noopener,noreferrer");
                       } else {
-                        console.log(`⚠️ Article card not found for ID: ${news.id}`);
+                        console.warn('⚠️ No URL available for this article');
                       }
                     }}
                     className={`absolute inset-0 transition-all duration-1000 transform cursor-pointer ${
@@ -779,6 +771,13 @@ const Index = () => {
                       </p>
                       <div className="flex items-center space-x-4">
                         <button
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            console.log(`🔘 Read Full Story button clicked for: ${news.title.substring(0, 40)}...`);
+                            if (news.url) {
+                              window.open(news.url, "_blank", "noopener,noreferrer");
+                            }
+                          }}
                           className={`px-6 py-3 rounded-full bg-gradient-to-r ${theme.accent} text-white font-bold shadow-xl ${theme.glow} hover:scale-105 transition-transform flex items-center space-x-2`}
                         >
                           <span>Read Full Story</span>
