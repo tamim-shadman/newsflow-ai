@@ -789,10 +789,20 @@ const Index = () => {
             </div>
           ) : featuredNews.length > 0 ? (
             <div className="relative group">
-              <div className="relative h-[400px] sm:h-[500px] lg:h-[550px] rounded-2xl sm:rounded-3xl overflow-hidden shadow-2xl ring-2 ring-white/10">
+              {/* Dynamic background glow based on active slide */}
+              <div 
+                className={`absolute inset-0 -z-10 blur-3xl opacity-30 transition-all duration-1000 bg-gradient-to-r ${
+                  featuredNews[currentSlide] ? categoryThemes[featuredNews[currentSlide].category].accent : theme.accent
+                }`}
+                style={{ transform: 'scale(1.1)' }}
+              />
+              <div className={`relative h-[400px] sm:h-[500px] lg:h-[550px] rounded-2xl sm:rounded-3xl overflow-hidden shadow-2xl ring-2 transition-all duration-1000 ${
+                featuredNews[currentSlide] ? `ring-${categoryThemes[featuredNews[currentSlide].category].accent}/30 ${categoryThemes[featuredNews[currentSlide].category].glow}` : 'ring-white/10'
+              }`}>
                 {featuredNews.map((news, index) => {
                   const isActive = index === currentSlide;
                   const isPrev = index === (currentSlide - 1 + featuredNews.length) % featuredNews.length;
+                  const slideTheme = categoryThemes[news.category];
                   return (
                     <div
                       key={`${news.id}-${index}`}
@@ -818,7 +828,7 @@ const Index = () => {
                           {[...Array(10)].map((_, i) => (
                             <div
                               key={i}
-                              className={`absolute w-2 h-2 bg-gradient-to-r ${theme.accent} rounded-full animate-float-particle`}
+                              className={`absolute w-2 h-2 bg-gradient-to-r ${slideTheme.accent} rounded-full animate-float-particle`}
                               style={{
                                 left: `${Math.random() * 100}%`,
                                 top: `${Math.random() * 100}%`,
@@ -884,7 +894,7 @@ const Index = () => {
                                   window.open(news.url, "_blank", "noopener,noreferrer");
                                 }
                               }}
-                              className={`px-6 py-3 rounded-full bg-gradient-to-r ${theme.accent} text-white font-bold shadow-xl ${theme.glow} hover:scale-105 transition-transform flex items-center space-x-2`}
+                              className={`px-6 py-3 rounded-full bg-gradient-to-r ${slideTheme.accent} text-white font-bold shadow-xl ${slideTheme.glow} hover:scale-105 transition-transform flex items-center space-x-2`}
                             >
                               <span>Read Full Story</span>
                               <ExternalLink className="w-5 h-5" />
@@ -924,35 +934,43 @@ const Index = () => {
 
               {featuredNews.length > 1 && (
                 <>
-                  {/* Navigation Buttons - Responsive */}
+                  {/* Navigation Buttons - Responsive with dynamic theme */}
                   <button
                     onClick={prevSlide}
-                    className="absolute left-2 sm:left-6 top-1/2 -translate-y-1/2 flex items-center justify-center p-2 sm:p-3 rounded-full bg-black/70 text-white hover:bg-black/90 transition-all hover:scale-110 active:scale-95 shadow-xl shadow-black/40 border border-white/30 z-40"
+                    className={`absolute left-2 sm:left-6 top-1/2 -translate-y-1/2 flex items-center justify-center p-2 sm:p-3 rounded-full bg-black/70 backdrop-blur-xl text-white hover:bg-gradient-to-r ${
+                      featuredNews[currentSlide] ? categoryThemes[featuredNews[currentSlide].category].accent : theme.accent
+                    } transition-all hover:scale-110 active:scale-95 shadow-xl border border-white/30 z-40`}
                     aria-label="Previous slide"
                   >
                     <ChevronLeft className="w-4 h-4 sm:w-5 sm:h-5" />
                   </button>
                   <button
                     onClick={nextSlide}
-                    className="absolute right-2 sm:right-6 top-1/2 -translate-y-1/2 flex items-center justify-center p-2 sm:p-3 rounded-full bg-black/70 text-white hover:bg-black/90 transition-all hover:scale-110 active:scale-95 shadow-xl shadow-black/40 border border-white/30 z-40"
+                    className={`absolute right-2 sm:right-6 top-1/2 -translate-y-1/2 flex items-center justify-center p-2 sm:p-3 rounded-full bg-black/70 backdrop-blur-xl text-white hover:bg-gradient-to-r ${
+                      featuredNews[currentSlide] ? categoryThemes[featuredNews[currentSlide].category].accent : theme.accent
+                    } transition-all hover:scale-110 active:scale-95 shadow-xl border border-white/30 z-40`}
                     aria-label="Next slide"
                   >
                     <ChevronRight className="w-4 h-4 sm:w-5 sm:h-5" />
                   </button>
 
-                  {/* Carousel Indicators - Responsive */}
-                  <div className="absolute bottom-4 sm:bottom-6 left-1/2 -translate-x-1/2 flex space-x-2 sm:space-x-3">
-                    {featuredNews.map((_, index) => (
-                      <button
-                        key={index}
-                        onClick={() => setCurrentSlide(index)}
-                        className={`transition-all duration-300 rounded-full ${
-                          index === currentSlide
-                            ? `bg-gradient-to-r ${theme.accent} w-8 sm:w-12 h-2 sm:h-3 shadow-xl ${theme.glow}`
-                            : "bg-white/40 w-2 sm:w-3 h-2 sm:h-3 hover:bg-white/60"
-                        }`}
-                      />
-                    ))}
+                  {/* Carousel Indicators - Responsive with dynamic theme */}
+                  <div className="absolute bottom-4 sm:bottom-6 left-1/2 -translate-x-1/2 flex space-x-2 sm:space-x-3 z-40">
+                    {featuredNews.map((news, index) => {
+                      const indicatorTheme = categoryThemes[news.category];
+                      return (
+                        <button
+                          key={index}
+                          onClick={() => setCurrentSlide(index)}
+                          className={`transition-all duration-300 rounded-full ${
+                            index === currentSlide
+                              ? `bg-gradient-to-r ${indicatorTheme.accent} w-8 sm:w-12 h-2 sm:h-3 shadow-xl ${indicatorTheme.glow}`
+                              : "bg-white/40 w-2 sm:w-3 h-2 sm:h-3 hover:bg-white/60"
+                          }`}
+                          aria-label={`Go to slide ${index + 1}: ${news.category}`}
+                        />
+                      );
+                    })}
                   </div>
                 </>
               )}
