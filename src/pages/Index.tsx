@@ -807,115 +807,115 @@ const Index = () => {
                       style={{ pointerEvents: isActive ? "auto" : "none" }}
                     >
                       <div className="relative h-full w-full">
-                    <img
-                      src={news.image}
-                      alt={news.title}
-                      className="w-full h-full object-cover pointer-events-none"
-                    />
-                    <div className="absolute inset-0 bg-gradient-to-t from-black via-black/70 to-transparent pointer-events-none" />
-
-                    <div className="absolute inset-0 opacity-30 pointer-events-none">
-                      {[...Array(10)].map((_, i) => (
-                        <div
-                          key={i}
-                          className={`absolute w-2 h-2 bg-gradient-to-r ${theme.accent} rounded-full animate-float-particle`}
-                          style={{
-                            left: `${Math.random() * 100}%`,
-                            top: `${Math.random() * 100}%`,
-                            animationDelay: `${i * 0.5}s`,
-                            animationDuration: `${3 + Math.random() * 2}s`,
-                          }}
+                        <img
+                          src={news.image}
+                          alt={news.title}
+                          className="w-full h-full object-cover pointer-events-none"
                         />
-                      ))}
-                    </div>
+                        <div className="absolute inset-0 bg-gradient-to-t from-black via-black/70 to-transparent pointer-events-none" />
+
+                        <div className="absolute inset-0 opacity-30 pointer-events-none">
+                          {[...Array(10)].map((_, i) => (
+                            <div
+                              key={i}
+                              className={`absolute w-2 h-2 bg-gradient-to-r ${theme.accent} rounded-full animate-float-particle`}
+                              style={{
+                                left: `${Math.random() * 100}%`,
+                                top: `${Math.random() * 100}%`,
+                                animationDelay: `${i * 0.5}s`,
+                                animationDuration: `${3 + Math.random() * 2}s`,
+                              }}
+                            />
+                          ))}
+                        </div>
 
                         <div className="absolute bottom-0 left-0 right-0 p-4 sm:p-6 lg:p-10 pointer-events-auto">
-                      <div className="flex items-center flex-wrap gap-2 sm:gap-3 mb-3 sm:mb-5">
-                        {news.isTrending && (
-                          <span className="px-2 sm:px-3 py-1 rounded-full text-[10px] sm:text-xs font-bold bg-gradient-to-r from-orange-500 to-red-500 text-white shadow-xl shadow-orange-500/50 animate-pulse-glow flex items-center space-x-1">
-                            <Flame className="w-2.5 h-2.5 sm:w-3 sm:h-3" />
-                            <span>TRENDING</span>
-                          </span>
-                        )}
-                        <span
-                          className={`px-3 sm:px-5 py-1 sm:py-2 rounded-full text-xs sm:text-base font-black bg-gradient-to-r ${
-                            categoryThemes[news.category].accent
-                          } text-white shadow-2xl ${
-                            categoryThemes[news.category].glow
-                          } animate-pulse-glow uppercase tracking-wide flex items-center gap-1 sm:gap-2`}
-                        >
-                          {(() => {
-                            const CategoryIcon = getCategoryIcon(news.category);
-                            return <CategoryIcon className="w-3 h-3 sm:w-5 sm:h-5" />;
-                          })()}
-                          <span className="hidden sm:inline">{news.category}</span>
-                        </span>
-                        <div className="flex items-center space-x-1 sm:space-x-2 text-gray-200 bg-black/60 backdrop-blur-xl px-2 sm:px-4 py-1 sm:py-2 rounded-full">
-                          <Clock className="w-3 h-3 sm:w-4 sm:h-4" />
-                          <span className="text-xs sm:text-sm font-semibold">
-                            {news.time}
-                          </span>
-                        </div>
-                        <div className="hidden sm:flex items-center space-x-2 text-gray-200 bg-black/60 backdrop-blur-xl px-4 py-2 rounded-full">
-                          <span className="text-sm font-semibold">
-                            {news.readTime}
-                          </span>
-                        </div>
-                        {news.source && (
-                          <div className="hidden md:flex items-center space-x-2 text-gray-200 bg-black/60 backdrop-blur-xl px-4 py-2 rounded-full">
-                            <span className="text-sm font-semibold">
-                              {news.source}
+                          <div className="flex items-center flex-wrap gap-2 sm:gap-3 mb-3 sm:mb-5">
+                            {news.isTrending && (
+                              <span className="px-2 sm:px-3 py-1 rounded-full text-[10px] sm:text-xs font-bold bg-gradient-to-r from-orange-500 to-red-500 text-white shadow-xl shadow-orange-500/50 animate-pulse-glow flex items-center space-x-1">
+                                <Flame className="w-2.5 h-2.5 sm:w-3 sm:h-3" />
+                                <span>TRENDING</span>
+                              </span>
+                            )}
+                            <span
+                              className={`px-3 sm:px-5 py-1 sm:py-2 rounded-full text-xs sm:text-base font-black bg-gradient-to-r ${
+                                categoryThemes[news.category].accent
+                              } text-white shadow-2xl ${
+                                categoryThemes[news.category].glow
+                              } animate-pulse-glow uppercase tracking-wide flex items-center gap-1 sm:gap-2`}
+                            >
+                              {(() => {
+                                const CategoryIcon = getCategoryIcon(news.category);
+                                return <CategoryIcon className="w-3 h-3 sm:w-5 sm:h-5" />;
+                              })()}
+                              <span className="hidden sm:inline">{news.category}</span>
                             </span>
+                            <div className="flex items-center space-x-1 sm:space-x-2 text-gray-200 bg-black/60 backdrop-blur-xl px-2 sm:px-4 py-1 sm:py-2 rounded-full">
+                              <Clock className="w-3 h-3 sm:w-4 sm:h-4" />
+                              <span className="text-xs sm:text-sm font-semibold">
+                                {news.time}
+                              </span>
+                            </div>
+                            <div className="hidden sm:flex items-center space-x-2 text-gray-200 bg-black/60 backdrop-blur-xl px-4 py-2 rounded-full">
+                              <span className="text-sm font-semibold">
+                                {news.readTime}
+                              </span>
+                            </div>
+                            {news.source && (
+                              <div className="hidden md:flex items-center space-x-2 text-gray-200 bg-black/60 backdrop-blur-xl px-4 py-2 rounded-full">
+                                <span className="text-sm font-semibold">
+                                  {news.source}
+                                </span>
+                              </div>
+                            )}
                           </div>
-                        )}
-                      </div>
-                      <h3 className="text-2xl sm:text-3xl lg:text-5xl font-black font-display text-white mb-2 sm:mb-4 leading-tight drop-shadow-2xl line-clamp-2 sm:line-clamp-none">
-                        {news.title}
-                      </h3>
-                      <p className="text-gray-200 text-xl mb-6 max-w-3xl">
-                        {news.excerpt}
-                      </p>
-                      <div className="flex items-center space-x-4">
-                        <button
-                          onClick={(e) => {
-                            e.stopPropagation();
-                            console.log(`🔘 Read Full Story button clicked for: ${news.title.substring(0, 40)}...`);
-                            if (news.url) {
-                              window.open(news.url, "_blank", "noopener,noreferrer");
-                            }
-                          }}
-                          className={`px-6 py-3 rounded-full bg-gradient-to-r ${theme.accent} text-white font-bold shadow-xl ${theme.glow} hover:scale-105 transition-transform flex items-center space-x-2`}
-                        >
-                          <span>Read Full Story</span>
-                          <ExternalLink className="w-5 h-5" />
-                        </button>
-                        <button
-                          onClick={(e) => {
-                            e.stopPropagation();
-                            alert("Article bookmarked!");
-                          }}
-                          className="p-3 rounded-full bg-white/10 backdrop-blur-xl hover:bg-white/20 transition-all"
-                        >
-                          <Bookmark className="w-5 h-5 text-white" />
-                        </button>
-                        <button
-                          onClick={(e) => {
-                            e.stopPropagation();
-                            if (navigator.share && news.url) {
-                              navigator.share({
-                                url: news.url,
-                                title: news.title,
-                              });
-                            } else {
-                              alert("Share link copied!");
-                            }
-                          }}
-                          className="p-3 rounded-full bg-white/10 backdrop-blur-xl hover:bg-white/20 transition-all"
-                        >
-                          <Share2 className="w-5 h-5 text-white" />
-                        </button>
-                      </div>
-                    </div>
+                          <h3 className="text-2xl sm:text-3xl lg:text-5xl font-black font-display text-white mb-2 sm:mb-4 leading-tight drop-shadow-2xl line-clamp-2 sm:line-clamp-none">
+                            {news.title}
+                          </h3>
+                          <p className="text-gray-200 text-xl mb-6 max-w-3xl">
+                            {news.excerpt}
+                          </p>
+                          <div className="flex items-center space-x-4">
+                            <button
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                console.log(`🔘 Read Full Story button clicked for: ${news.title.substring(0, 40)}...`);
+                                if (news.url) {
+                                  window.open(news.url, "_blank", "noopener,noreferrer");
+                                }
+                              }}
+                              className={`px-6 py-3 rounded-full bg-gradient-to-r ${theme.accent} text-white font-bold shadow-xl ${theme.glow} hover:scale-105 transition-transform flex items-center space-x-2`}
+                            >
+                              <span>Read Full Story</span>
+                              <ExternalLink className="w-5 h-5" />
+                            </button>
+                            <button
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                alert("Article bookmarked!");
+                              }}
+                              className="p-3 rounded-full bg-white/10 backdrop-blur-xl hover:bg-white/20 transition-all"
+                            >
+                              <Bookmark className="w-5 h-5 text-white" />
+                            </button>
+                            <button
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                if (navigator.share && news.url) {
+                                  navigator.share({
+                                    url: news.url,
+                                    title: news.title,
+                                  });
+                                } else {
+                                  alert("Share link copied!");
+                                }
+                              }}
+                              className="p-3 rounded-full bg-white/10 backdrop-blur-xl hover:bg-white/20 transition-all"
+                            >
+                              <Share2 className="w-5 h-5 text-white" />
+                            </button>
+                          </div>
+                        </div>
                       </div>
                     </div>
                   );
