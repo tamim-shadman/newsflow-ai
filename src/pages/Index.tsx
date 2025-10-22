@@ -1008,43 +1008,49 @@ const Index = () => {
                             </button>
                           </PopoverTrigger>
                           <PopoverContent
-                            className="w-[45vw] sm:w-[250px] md:w-[300px] lg:w-[350px] max-h-[60vh] bg-gradient-to-br from-black via-purple-950/20 to-black backdrop-blur-xl border border-purple-500/30 text-white p-3 sm:p-4 z-50 shadow-2xl shadow-purple-500/20 overflow-hidden"
+                            className="w-[calc(100vw-2rem)] sm:w-[400px] md:w-[450px] max-h-[70vh] bg-black/80 backdrop-blur-3xl border border-purple-500/40 text-white p-4 sm:p-5 z-50 shadow-[0_0_50px_rgba(168,85,247,0.4)] rounded-2xl data-[state=open]:animate-in data-[state=closed]:animate-out data-[state=closed]:fade-out-0 data-[state=open]:fade-in-0 data-[state=closed]:zoom-out-95 data-[state=open]:zoom-in-95 data-[side=bottom]:slide-in-from-top-2 data-[side=left]:slide-in-from-right-2 data-[side=right]:slide-in-from-left-2 data-[side=top]:slide-in-from-bottom-2"
                             onClick={(e) => e.stopPropagation()}
                             side="top"
-                            align="end"
+                            align="center"
+                            sideOffset={10}
                           >
-                            <div className="space-y-2">
-                              <div className="flex items-center space-x-2 pb-2 border-b border-purple-500/20">
-                                <Sparkles className="w-4 h-4 text-purple-400" />
-                                <h4 className="font-bold text-sm sm:text-base bg-gradient-to-r from-purple-400 to-pink-400 bg-clip-text text-transparent">
-                                  Article Summary
-                                </h4>
+                            <div className="space-y-3">
+                              <div className="flex items-center justify-between pb-3 border-b border-purple-500/30">
+                                <div className="flex items-center space-x-2">
+                                  <Sparkles className="w-5 h-5 text-purple-400 animate-pulse" />
+                                  <h4 className="font-bold text-base sm:text-lg bg-gradient-to-r from-purple-400 via-pink-400 to-purple-400 bg-clip-text text-transparent">
+                                    AI Summary
+                                  </h4>
+                                </div>
                               </div>
-                              <div className="overflow-y-auto max-h-[48vh] pr-2 scrollbar-thin scrollbar-thumb-purple-500/70 scrollbar-track-purple-500/10">
+                              <div className="overflow-y-auto max-h-[55vh] pr-2 scrollbar-thin scrollbar-thumb-purple-500/70 scrollbar-track-purple-500/10">
                                 {loadingSummary === article.url ? (
-                                  <div className="flex items-center justify-center py-4">
-                                    <Loader2 className="w-5 h-5 sm:w-6 sm:h-6 text-purple-400 animate-spin" />
+                                  <div className="flex items-center justify-center py-8">
+                                    <Loader2 className="w-8 h-8 text-purple-400 animate-spin" />
                                   </div>
                                 ) : summaries.has(article.url) ? (
-                                  <div className="space-y-2">
+                                  <div className="space-y-4">
                                     {/* Main Summary */}
-                                    <div className="bg-gradient-to-br from-purple-500/10 to-pink-500/10 rounded-lg p-2 sm:p-3 border border-purple-500/20">
-                                      <p className="text-gray-100 text-xs sm:text-sm leading-relaxed">
+                                    <div className="bg-gradient-to-br from-purple-500/20 to-pink-500/20 rounded-xl p-4 border border-purple-500/30 backdrop-blur-sm">
+                                      <p className="text-gray-100 text-sm sm:text-base leading-relaxed">
                                         {summaries.get(article.url)?.split('.')[0]}.
                                       </p>
                                     </div>
                                     
                                     {/* Key Points */}
-                                    <div className="space-y-1.5">
-                                      <h5 className="text-[10px] sm:text-xs font-semibold text-purple-400 uppercase tracking-wide">Key Points</h5>
-                                      <ul className="space-y-1.5">
+                                    <div className="space-y-3">
+                                      <h5 className="text-xs sm:text-sm font-bold text-purple-400 uppercase tracking-wider flex items-center space-x-2">
+                                        <span className="w-1 h-4 bg-gradient-to-b from-purple-400 to-pink-400 rounded-full"></span>
+                                        <span>Key Insights</span>
+                                      </h5>
+                                      <ul className="space-y-3">
                                         {summaries.get(article.url)
                                           ?.split(/[.!?]+/)
                                           .filter(s => s.trim().length > 20)
                                           .slice(1, 5)
                                           .map((point, idx) => (
-                                            <li key={idx} className="flex items-start space-x-2 text-[11px] sm:text-xs">
-                                              <span className="text-purple-400 mt-0.5 flex-shrink-0">•</span>
+                                            <li key={idx} className="flex items-start space-x-3 text-sm sm:text-base group">
+                                              <span className="text-purple-400 text-lg flex-shrink-0 group-hover:scale-125 transition-transform">•</span>
                                               <span className="text-gray-300 leading-relaxed">{point.trim()}</span>
                                             </li>
                                           ))
@@ -1053,7 +1059,7 @@ const Index = () => {
                                     </div>
                                   </div>
                                 ) : (
-                                  <p className="text-gray-400 text-xs sm:text-sm italic">
+                                  <p className="text-gray-400 text-sm italic text-center py-4">
                                     Generating summary...
                                   </p>
                                 )}
