@@ -1008,54 +1008,56 @@ const Index = () => {
                             </button>
                           </PopoverTrigger>
                           <PopoverContent
-                            className="w-80 sm:w-96 bg-gradient-to-br from-black via-purple-950/20 to-black backdrop-blur-xl border border-purple-500/30 text-white p-4 sm:p-5 z-50 shadow-2xl shadow-purple-500/20"
+                            className="w-[90vw] sm:w-[500px] md:w-[600px] lg:w-[700px] max-h-[70vh] bg-gradient-to-br from-black via-purple-950/20 to-black backdrop-blur-xl border border-purple-500/30 text-white p-4 sm:p-5 md:p-6 z-50 shadow-2xl shadow-purple-500/20 overflow-hidden"
                             onClick={(e) => e.stopPropagation()}
                             side="top"
                             align="end"
                           >
                             <div className="space-y-3">
                               <div className="flex items-center space-x-2 pb-3 border-b border-purple-500/20">
-                                <Sparkles className="w-5 h-5 text-purple-400" />
-                                <h4 className="font-bold text-lg bg-gradient-to-r from-purple-400 to-pink-400 bg-clip-text text-transparent">
+                                <Sparkles className="w-4 h-4 sm:w-5 sm:h-5 text-purple-400" />
+                                <h4 className="font-bold text-base sm:text-lg bg-gradient-to-r from-purple-400 to-pink-400 bg-clip-text text-transparent">
                                   Article Summary
                                 </h4>
                               </div>
-                              {loadingSummary === article.url ? (
-                                <div className="flex items-center justify-center py-6 sm:py-8">
-                                  <Loader2 className="w-6 h-6 sm:w-8 sm:h-8 text-purple-400 animate-spin" />
-                                </div>
-                              ) : summaries.has(article.url) ? (
-                                <div className="space-y-3">
-                                  {/* Main Summary */}
-                                  <div className="bg-gradient-to-br from-purple-500/10 to-pink-500/10 rounded-lg p-3 border border-purple-500/20">
-                                    <p className="text-gray-100 text-xs sm:text-sm leading-relaxed">
-                                      {summaries.get(article.url)?.split('.')[0]}.
-                                    </p>
+                              <div className="overflow-y-auto max-h-[55vh] pr-2 scrollbar-thin scrollbar-thumb-purple-500/50 scrollbar-track-transparent">
+                                {loadingSummary === article.url ? (
+                                  <div className="flex items-center justify-center py-6 sm:py-8">
+                                    <Loader2 className="w-5 h-5 sm:w-6 sm:h-6 md:w-8 md:h-8 text-purple-400 animate-spin" />
                                   </div>
-                                  
-                                  {/* Key Points */}
-                                  <div className="space-y-2">
-                                    <h5 className="text-xs font-semibold text-purple-400 uppercase tracking-wide">Key Points</h5>
-                                    <ul className="space-y-2">
-                                      {summaries.get(article.url)
-                                        ?.split(/[.!?]+/)
-                                        .filter(s => s.trim().length > 20)
-                                        .slice(1, 5)
-                                        .map((point, idx) => (
-                                          <li key={idx} className="flex items-start space-x-2 text-xs sm:text-sm">
-                                            <span className="text-purple-400 mt-0.5 flex-shrink-0">•</span>
-                                            <span className="text-gray-300 leading-relaxed">{point.trim()}</span>
-                                          </li>
-                                        ))
-                                      }
-                                    </ul>
+                                ) : summaries.has(article.url) ? (
+                                  <div className="space-y-3 sm:space-y-4">
+                                    {/* Main Summary */}
+                                    <div className="bg-gradient-to-br from-purple-500/10 to-pink-500/10 rounded-lg p-3 sm:p-4 border border-purple-500/20">
+                                      <p className="text-gray-100 text-xs sm:text-sm md:text-base leading-relaxed">
+                                        {summaries.get(article.url)?.split('.')[0]}.
+                                      </p>
+                                    </div>
+                                    
+                                    {/* Key Points */}
+                                    <div className="space-y-2 sm:space-y-3">
+                                      <h5 className="text-xs sm:text-sm font-semibold text-purple-400 uppercase tracking-wide">Key Points</h5>
+                                      <ul className="space-y-2 sm:space-y-3">
+                                        {summaries.get(article.url)
+                                          ?.split(/[.!?]+/)
+                                          .filter(s => s.trim().length > 20)
+                                          .slice(1, 5)
+                                          .map((point, idx) => (
+                                            <li key={idx} className="flex items-start space-x-2 sm:space-x-3 text-xs sm:text-sm md:text-base">
+                                              <span className="text-purple-400 mt-0.5 sm:mt-1 flex-shrink-0">•</span>
+                                              <span className="text-gray-300 leading-relaxed">{point.trim()}</span>
+                                            </li>
+                                          ))
+                                        }
+                                      </ul>
+                                    </div>
                                   </div>
-                                </div>
-                              ) : (
-                                <p className="text-gray-400 text-xs sm:text-sm italic">
-                                  Generating summary...
-                                </p>
-                              )}
+                                ) : (
+                                  <p className="text-gray-400 text-xs sm:text-sm md:text-base italic">
+                                    Generating summary...
+                                  </p>
+                                )}
+                              </div>
                             </div>
                           </PopoverContent>
                         </Popover>
