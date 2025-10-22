@@ -12,6 +12,16 @@ const CURRENTS_API_KEY = import.meta.env.CURRENTS_API_KEY;
 const GNEWS_API_KEY = import.meta.env.GNEWS_API_KEY;
 const GUARDIAN_API_KEY = import.meta.env.GUARDIAN_API_KEY;
 
+// New specialized API keys
+const ALPHA_VANTAGE_API_KEY = import.meta.env.ALPHA_VANTAGE_API_KEY;
+const MARKETAUX_API_KEY = import.meta.env.MARKETAUX_API_KEY;
+const FMP_API_KEY = import.meta.env.FMP_API_KEY;
+const SPORTSDB_API_KEY = import.meta.env.SPORTSDB_API_KEY;
+const API_FOOTBALL_KEY = import.meta.env.API_FOOTBALL_KEY;
+const TMDB_API_KEY = import.meta.env.TMDB_API_KEY;
+const OMDB_API_KEY = import.meta.env.OMDB_API_KEY;
+const RSS2JSON_API_KEY = import.meta.env.RSS2JSON_API_KEY;
+
 // In-memory cache with TTL (2 hours)
 interface CacheEntry {
   data: NewsAPIArticle[];
@@ -471,8 +481,8 @@ export async function searchNews(
 
 /**
  * Fetch news directly from APIs (for local development)
- * Uses sequential fallback: Guardian → Currents → GNews → NewsData
- * Returns as soon as one succeeds (much more efficient than aggregation)
+ * Uses OPTIMIZED category-specific routing + fallback chain
+ * Each category uses the best API for that content type
  */
 async function fetchNewsDirectly(
   category: CategoryType,
@@ -480,160 +490,824 @@ async function fetchNewsDirectly(
 ): Promise<NewsAPIArticle[]> {
   const cat = category === "all" ? "general" : category;
   
-  // Try 1: The Guardian (BEST - 5000 requests/day)
-  if (GUARDIAN_API_KEY) {
+  // OPTIMIZED: Route categories to their best APIs first
+  const apiPriority = getCategoryAPIsPriority(category);
+  
+  console.log(`🎯 Using optimized routing for ${category}: ${apiPriority.join(' → ')}`);
+  
+  // Try APIs in priority order for this category
+  for (const apiName of apiPriority) {
     try {
-      console.log('🔄 Trying Guardian API (5000/day quota)...');
-      const guardianSection = cat === "general" ? "world" : cat;
-      const response = await axios.get(
-        `https://content.guardianapis.com/search?section=${guardianSection}&show-fields=thumbnail,trailText,byline&page-size=${pageSize}&api-key=${GUARDIAN_API_KEY}`,
-        { timeout: 8000 }
-      );
-
-      const guardianArticles = response.data.response?.results || [];
-      if (guardianArticles.length > 0) {
-        const articles = guardianArticles.map((article: { 
-          fields?: { byline?: string; trailText?: string; thumbnail?: string }; 
-          webTitle: string; 
-          webUrl: string; 
-          webPublicationDate: string 
-        }) => ({
-          source: { id: "guardian", name: "The Guardian" },
-          author: article.fields?.byline || "The Guardian",
-          title: article.webTitle,
-          description: article.fields?.trailText || article.webTitle,
-          url: article.webUrl,
-          urlToImage: article.fields?.thumbnail || "https://images.unsplash.com/photo-1504711434969-e33886168f5c?w=800&h=600&fit=crop",
-          publishedAt: article.webPublicationDate,
-          content: article.fields?.trailText,
-        }));
-        
-        console.log(`✅ Guardian API SUCCESS: ${articles.length} articles`);
+      const articles = await tryAPI(apiName, cat, pageSize);
+      if (articles.length > 0) {
         return articles;
       }
-    } catch (guardianError) {
-      console.warn("⚠️ Guardian API failed, trying next provider...");
+    } catch (error) {
+      console.warn(`⚠️ ${apiName} failed, trying next...`);
     }
   }
-
-  // Try 2: Currents API (600 requests/day)
-  if (CURRENTS_API_KEY) {
-    try {
-      console.log('🔄 Trying Currents API (600/day quota)...');
-      const response = await axios.get(
-        `https://api.currentsapi.services/v1/latest-news?apiKey=${CURRENTS_API_KEY}&category=${cat}&language=en`,
-        { timeout: 8000 }
-      );
-
-      const currentsArticles = response.data.news || [];
-      if (currentsArticles.length > 0) {
-        const articles = currentsArticles.slice(0, pageSize).map((article: {
-          author?: string;
-          title: string;
-          description: string;
-          url: string;
-          image?: string;
-          published: string;
-        }) => ({
-          source: { id: "currents", name: "Currents API" },
-          author: article.author || "Currents",
-          title: article.title,
-          description: article.description,
-          url: article.url,
-          urlToImage: article.image || "https://images.unsplash.com/photo-1504711434969-e33886168f5c?w=800&h=600&fit=crop",
-          publishedAt: article.published,
-          content: article.description,
-        }));
-        
-        console.log(`✅ Currents API SUCCESS: ${articles.length} articles`);
-        return articles;
-      }
-    } catch (currentsError) {
-      console.warn("⚠️ Currents API failed, trying next provider...");
-    }
-  }
-
-  // Try 3: GNews (100 requests/day)
-  if (GNEWS_API_KEY) {
-    try {
-      console.log('🔄 Trying GNews API (100/day quota)...');
-      const gnewsCategory = cat === "general" ? "world" : cat;
-      const response = await axios.get(
-        `https://gnews.io/api/v4/top-headlines?category=${gnewsCategory}&lang=en&max=${pageSize}&apikey=${GNEWS_API_KEY}`,
-        { timeout: 8000 }
-      );
-
-      const gnewsArticles = response.data.articles || [];
-      if (gnewsArticles.length > 0) {
-        const articles = gnewsArticles.map((article: { 
-          source?: { name?: string }; 
-          title: string; 
-          description: string; 
-          url: string; 
-          image: string; 
-          publishedAt: string; 
-          content: string 
-        }) => ({
-          source: { id: "gnews", name: article.source?.name || "GNews" },
-          author: article.source?.name || "GNews",
-          title: article.title,
-          description: article.description,
-          url: article.url,
-          urlToImage: article.image || "https://images.unsplash.com/photo-504711434969-e33886168f5c?w=800&h=600&fit=crop",
-          publishedAt: article.publishedAt,
-          content: article.content,
-        }));
-        
-        console.log(`✅ GNews API SUCCESS: ${articles.length} articles`);
-        return articles;
-      }
-    } catch (gnewsError) {
-      console.warn("⚠️ GNews API failed, trying next provider...");
-    }
-  }
-
-  // Try 4: NewsData.io (200 requests/day - Last resort)
-  if (NEWSDATA_API_KEY) {
-    try {
-      console.log('🔄 Trying NewsData.io API (200/day quota)...');
-      const response = await axios.get(
-        `https://newsdata.io/api/1/news?apikey=${NEWSDATA_API_KEY}&category=${cat}&language=en`,
-        { timeout: 8000 }
-      );
-
-      const newsdataArticles = response.data.results || [];
-      if (newsdataArticles.length > 0) {
-        const articles = newsdataArticles.slice(0, pageSize).map((article: {
-          creator?: string[];
-          title: string;
-          description?: string;
-          link: string;
-          image_url?: string;
-          pubDate: string;
-          content?: string;
-          source_id?: string;
-        }) => ({
-          source: { id: "newsdata", name: article.source_id || "NewsData" },
-          author: article.creator?.[0] || "NewsData",
-          title: article.title,
-          description: article.description || article.title,
-          url: article.link,
-          urlToImage: article.image_url || "https://images.unsplash.com/photo-1504711434969-e33886168f5c?w=800&h=600&fit=crop",
-          publishedAt: article.pubDate,
-          content: article.content || article.description,
-        }));
-        
-        console.log(`✅ NewsData.io API SUCCESS: ${articles.length} articles`);
-        return articles;
-      }
-    } catch (newsdataError) {
-      console.warn("⚠️ NewsData.io API failed, all providers exhausted");
-    }
-  }
-
-  console.error("❌ All 4 API providers failed, returning empty array");
+  
+  console.error("❌ All APIs failed for this category");
   return [];
 }
+
+/**
+ * Get optimized API priority order for each category
+ * Based on each API's strengths and content quality
+ * Using 20+ specialized APIs with proper fallback chains
+ */
+function getCategoryAPIsPriority(category: CategoryType): string[] {
+  const priorities: Partial<Record<CategoryType, string[]>> = {
+    // TECHNOLOGY: Guardian → HackerNews → Dev.to → GitHub Trending → Currents → GNews → NewsData
+    technology: ['guardian', 'hackernews', 'devto', 'github-trending', 'currents', 'gnews', 'newsdata'],
+    
+    // SPORTS: Guardian → ESPN → SportsDB → Currents → NewsData
+    sports: ['guardian', 'espn', 'sportsdb', 'currents', 'newsdata'],
+    
+    // LIVE SCORES: Handled separately in liveScores.ts service
+    scores: [],
+    
+    // BUSINESS: Guardian → Alpha Vantage → Marketaux → Currents → GNews → NewsData
+    business: ['guardian', 'alphavantage', 'marketaux', 'currents', 'gnews', 'newsdata'],
+    
+    // HEALTH: Guardian → PubMed → CDC RSS → Currents → NewsData
+    health: ['guardian', 'pubmed', 'cdc-rss', 'currents', 'newsdata'],
+    
+    // ENTERTAINMENT: Guardian → TMDB → TVMaze → Currents → GNews → NewsData
+    entertainment: ['guardian', 'tmdb', 'tvmaze', 'currents', 'gnews', 'newsdata'],
+    
+    // WORLD: Guardian → BBC RSS → Reuters RSS → Currents → GNews → NewsData
+    world: ['guardian', 'bbc-rss', 'reuters-rss', 'currents', 'gnews', 'newsdata'],
+    
+    // ALL/GENERAL: Guardian → Currents → GNews → NewsData → Saurav
+    all: ['guardian', 'currents', 'gnews', 'newsdata', 'saurav'],
+    
+    // TRENDING: Mix of all for diverse trending topics
+    trending: ['guardian', 'currents', 'gnews', 'newsdata', 'saurav'],
+  };
+  
+  return priorities[category] || priorities.all || ['guardian', 'currents', 'gnews', 'newsdata'];
+}
+
+/**
+ * Try a specific API and return articles
+ * Router function to dispatch to specialized API handlers
+ */
+async function tryAPI(apiName: string, cat: string, pageSize: number): Promise<NewsAPIArticle[]> {
+  switch (apiName) {
+    // Existing aggregator APIs
+    case 'guardian':
+      return await tryGuardianAPI(cat, pageSize);
+    case 'currents':
+      return await tryCurrentsAPI(cat, pageSize);
+    case 'gnews':
+      return await tryGNewsAPI(cat, pageSize);
+    case 'newsdata':
+      return await tryNewsDataAPI(cat, pageSize);
+    case 'saurav':
+      return await trySauravAPI(cat, pageSize);
+    
+    // Technology APIs
+    case 'hackernews':
+      return await tryHackerNewsAPI(pageSize);
+    case 'devto':
+      return await tryDevToAPI(pageSize);
+    case 'github-trending':
+      return await tryGitHubTrendingAPI(pageSize);
+    
+    // Sports APIs
+    case 'espn':
+      return await tryESPNAPI(cat, pageSize);
+    case 'sportsdb':
+      return await trySportsDBAPI(pageSize);
+    
+    // Business APIs
+    case 'alphavantage':
+      return await tryAlphaVantageAPI(pageSize);
+    case 'marketaux':
+      return await tryMarketauxAPI(pageSize);
+    
+    // Health APIs
+    case 'pubmed':
+      return await tryPubMedAPI(pageSize);
+    case 'cdc-rss':
+      return await tryCDCRSSAPI(pageSize);
+    
+    // Entertainment APIs
+    case 'tmdb':
+      return await tryTMDBAPI(pageSize);
+    case 'tvmaze':
+      return await tryTVMazeAPI(pageSize);
+    
+    // World News RSS APIs
+    case 'bbc-rss':
+      return await tryBBCRSSAPI(pageSize);
+    case 'reuters-rss':
+      return await tryReutersRSSAPI(pageSize);
+    
+    default:
+      console.warn(`⚠️ Unknown API: ${apiName}`);
+      return [];
+  }
+}
+
+/**
+ * Try Guardian API
+ */
+async function tryGuardianAPI(cat: string, pageSize: number): Promise<NewsAPIArticle[]> {
+  if (!GUARDIAN_API_KEY) return [];
+  
+  console.log('🔄 Trying Guardian API (5000/day quota)...');
+  const guardianSection = cat === "general" ? "world" : cat;
+  const response = await axios.get(
+    `https://content.guardianapis.com/search?section=${guardianSection}&show-fields=thumbnail,trailText,byline&page-size=${pageSize}&api-key=${GUARDIAN_API_KEY}`,
+    { timeout: 8000 }
+  );
+
+  const guardianArticles = response.data.response?.results || [];
+  if (guardianArticles.length > 0) {
+    const articles = guardianArticles.map((article: { 
+      fields?: { byline?: string; trailText?: string; thumbnail?: string }; 
+      webTitle: string; 
+      webUrl: string; 
+      webPublicationDate: string 
+    }) => ({
+      source: { id: "guardian", name: "The Guardian" },
+      author: article.fields?.byline || "The Guardian",
+      title: article.webTitle,
+      description: article.fields?.trailText || article.webTitle,
+      url: article.webUrl,
+      urlToImage: article.fields?.thumbnail || "https://images.unsplash.com/photo-1504711434969-e33886168f5c?w=800&h=600&fit=crop",
+      publishedAt: article.webPublicationDate,
+      content: article.fields?.trailText,
+    }));
+    
+    console.log(`✅ Guardian API SUCCESS: ${articles.length} articles`);
+    return articles;
+  }
+  return [];
+}
+
+/**
+ * Try Currents API
+ */
+async function tryCurrentsAPI(cat: string, pageSize: number): Promise<NewsAPIArticle[]> {
+  if (!CURRENTS_API_KEY) return [];
+  
+  console.log('🔄 Trying Currents API (600/day quota)...');
+  const response = await axios.get(
+    `https://api.currentsapi.services/v1/latest-news?apiKey=${CURRENTS_API_KEY}&category=${cat}&language=en`,
+    { timeout: 8000 }
+  );
+
+  const currentsArticles = response.data.news || [];
+  if (currentsArticles.length > 0) {
+    const articles = currentsArticles.slice(0, pageSize).map((article: {
+      author?: string;
+      title: string;
+      description: string;
+      url: string;
+      image?: string;
+      published: string;
+    }) => ({
+      source: { id: "currents", name: "Currents API" },
+      author: article.author || "Currents",
+      title: article.title,
+      description: article.description,
+      url: article.url,
+      urlToImage: article.image || "https://images.unsplash.com/photo-1504711434969-e33886168f5c?w=800&h=600&fit=crop",
+      publishedAt: article.published,
+      content: article.description,
+    }));
+    
+    console.log(`✅ Currents API SUCCESS: ${articles.length} articles`);
+    return articles;
+  }
+  return [];
+}
+
+/**
+ * Try GNews API
+ */
+async function tryGNewsAPI(cat: string, pageSize: number): Promise<NewsAPIArticle[]> {
+  if (!GNEWS_API_KEY) return [];
+  
+  console.log('🔄 Trying GNews API (100/day quota)...');
+  const gnewsCategory = cat === "general" ? "world" : cat;
+  const response = await axios.get(
+    `https://gnews.io/api/v4/top-headlines?category=${gnewsCategory}&lang=en&max=${pageSize}&apikey=${GNEWS_API_KEY}`,
+    { timeout: 8000 }
+  );
+
+  const gnewsArticles = response.data.articles || [];
+  if (gnewsArticles.length > 0) {
+    const articles = gnewsArticles.map((article: { 
+      source?: { name?: string }; 
+      title: string; 
+      description: string; 
+      url: string; 
+      image: string; 
+      publishedAt: string; 
+      content: string 
+    }) => ({
+      source: { id: "gnews", name: article.source?.name || "GNews" },
+      author: article.source?.name || "GNews",
+      title: article.title,
+      description: article.description,
+      url: article.url,
+      urlToImage: article.image || "https://images.unsplash.com/photo-504711434969-e33886168f5c?w=800&h=600&fit=crop",
+      publishedAt: article.publishedAt,
+      content: article.content,
+    }));
+    
+    console.log(`✅ GNews API SUCCESS: ${articles.length} articles`);
+    return articles;
+  }
+  return [];
+}
+
+/**
+ * Try NewsData.io API
+ */
+async function tryNewsDataAPI(cat: string, pageSize: number): Promise<NewsAPIArticle[]> {
+  if (!NEWSDATA_API_KEY) return [];
+  
+  console.log('🔄 Trying NewsData.io API (200/day quota)...');
+  const response = await axios.get(
+    `https://newsdata.io/api/1/news?apikey=${NEWSDATA_API_KEY}&category=${cat}&language=en`,
+    { timeout: 8000 }
+  );
+
+  const newsdataArticles = response.data.results || [];
+  if (newsdataArticles.length > 0) {
+    const articles = newsdataArticles.slice(0, pageSize).map((article: {
+      creator?: string[];
+      title: string;
+      description?: string;
+      link: string;
+      image_url?: string;
+      pubDate: string;
+      content?: string;
+      source_id?: string;
+    }) => ({
+      source: { id: "newsdata", name: article.source_id || "NewsData" },
+      author: article.creator?.[0] || "NewsData",
+      title: article.title,
+      description: article.description || article.title,
+      url: article.link,
+      urlToImage: article.image_url || "https://images.unsplash.com/photo-1504711434969-e33886168f5c?w=800&h=600&fit=crop",
+      publishedAt: article.pubDate,
+      content: article.content || article.description,
+    }));
+    
+    console.log(`✅ NewsData.io API SUCCESS: ${articles.length} articles`);
+    return articles;
+  }
+  return [];
+}
+
+/**
+ * Try Saurav Tech NewsAPI
+ */
+async function trySauravAPI(cat: string, pageSize: number): Promise<NewsAPIArticle[]> {
+  console.log('🔄 Trying Saurav Tech NewsAPI (Free, no quota)...');
+  const sauravCategory = cat === 'general' ? 'general' : cat;
+  const response = await axios.get(
+    `https://saurav.tech/NewsAPI/top-headlines/category/${sauravCategory}/in.json`,
+    { timeout: 8000 }
+  );
+
+  const sauravArticles = response.data.articles || [];
+  if (sauravArticles.length > 0) {
+    const articles = sauravArticles.slice(0, pageSize).map((article: {
+      source?: { id?: string; name?: string };
+      author?: string;
+      title: string;
+      description?: string;
+      url: string;
+      urlToImage?: string;
+      publishedAt: string;
+      content?: string;
+    }) => ({
+      source: { id: article.source?.id || "saurav-tech", name: article.source?.name || "News API" },
+      author: article.author || "NewsAPI",
+      title: article.title,
+      description: article.description || article.title,
+      url: article.url,
+      urlToImage: article.urlToImage || "https://images.unsplash.com/photo-1504711434969-e33886168f5c?w=800&h=600&fit=crop",
+      publishedAt: article.publishedAt,
+      content: article.content || article.description,
+    }));
+    
+    console.log(`✅ Saurav Tech NewsAPI SUCCESS: ${articles.length} articles`);
+    return articles;
+  }
+  return [];
+}
+
+// ============================================================================
+// TECHNOLOGY APIs
+// ============================================================================
+
+/* eslint-disable @typescript-eslint/no-explicit-any */
+// External API responses use any for flexibility with varying response structures
+
+/**
+ * Try Hacker News API (Unlimited, no key needed)
+ * Best for: Tech news, startups, programming
+ */
+async function tryHackerNewsAPI(pageSize: number): Promise<NewsAPIArticle[]> {
+  try {
+    console.log('🔄 Trying Hacker News API (Unlimited, no quota)...');
+    
+    // Get top stories IDs
+    const topStoriesResponse = await axios.get(
+      'https://hacker-news.firebaseio.com/v0/topstories.json',
+      { timeout: 8000 }
+    );
+    
+    const storyIds = topStoriesResponse.data.slice(0, pageSize * 2); // Get extra in case some fail
+    const articles: NewsAPIArticle[] = [];
+    
+    // Fetch individual stories in parallel (but limit to pageSize)
+    const storyPromises = storyIds.slice(0, pageSize).map(async (id: number) => {
+      try {
+        const response = await axios.get(
+          `https://hacker-news.firebaseio.com/v0/item/${id}.json`,
+          { timeout: 5000 }
+        );
+        return response.data;
+      } catch {
+        return null;
+      }
+    });
+    
+    const stories = await Promise.all(storyPromises);
+    
+    for (const story of stories) {
+      if (story && story.title && story.url) {
+        articles.push({
+          source: { id: "hacker-news", name: "Hacker News" },
+          author: story.by || "HN User",
+          title: story.title,
+          description: story.text || story.title,
+          url: story.url || `https://news.ycombinator.com/item?id=${story.id}`,
+          urlToImage: "https://images.unsplash.com/photo-1504639725590-34d0984388bd?w=800&h=600&fit=crop",
+          publishedAt: new Date(story.time * 1000).toISOString(),
+          content: story.text || story.title,
+        });
+      }
+    }
+    
+    console.log(`✅ Hacker News API SUCCESS: ${articles.length} articles`);
+    return articles.slice(0, pageSize);
+  } catch (error) {
+    console.error('❌ Hacker News API failed:', error);
+    return [];
+  }
+}
+
+/**
+ * Try Dev.to API (Unlimited, no key needed)
+ * Best for: Developer tutorials, tech articles
+ */
+async function tryDevToAPI(pageSize: number): Promise<NewsAPIArticle[]> {
+  try {
+    console.log('🔄 Trying Dev.to API (Unlimited, no quota)...');
+    
+    const response = await axios.get(
+      `https://dev.to/api/articles?per_page=${pageSize}&top=7`,
+      { timeout: 8000 }
+    );
+    
+    const articles = response.data.map((article: any) => ({
+      source: { id: "dev-to", name: "DEV Community" },
+      author: article.user?.name || "DEV User",
+      title: article.title,
+      description: article.description || article.title,
+      url: article.url,
+      urlToImage: article.cover_image || article.social_image || "https://images.unsplash.com/photo-1461749280684-dccba630e2f6?w=800&h=600&fit=crop",
+      publishedAt: article.published_at || new Date().toISOString(),
+      content: article.description || article.title,
+    }));
+    
+    console.log(`✅ Dev.to API SUCCESS: ${articles.length} articles`);
+    return articles;
+  } catch (error) {
+    console.error('❌ Dev.to API failed:', error);
+    return [];
+  }
+}
+
+/**
+ * Try GitHub Trending API (Unofficial, unlimited)
+ * Best for: Trending repositories, open source news
+ */
+async function tryGitHubTrendingAPI(pageSize: number): Promise<NewsAPIArticle[]> {
+  try {
+    console.log('🔄 Trying GitHub Trending API (Unlimited)...');
+    
+    const response = await axios.get(
+      'https://api.gitterHYPE.com/repositories?since=daily',
+      { timeout: 8000 }
+    );
+    
+    const articles = response.data.slice(0, pageSize).map((repo: any) => ({
+      source: { id: "github-trending", name: "GitHub Trending" },
+      author: repo.author || repo.username || "GitHub User",
+      title: `${repo.name || repo.repository}: ${repo.description || 'Trending Repository'}`,
+      description: repo.description || `Trending repository with ${repo.stars || 0} stars`,
+      url: repo.url || `https://github.com/${repo.author}/${repo.name}`,
+      urlToImage: repo.avatar || "https://images.unsplash.com/photo-1556075798-4825dfaaf498?w=800&h=600&fit=crop",
+      publishedAt: new Date().toISOString(),
+      content: repo.description || `${repo.name} - ${repo.stars || 0} stars today`,
+    }));
+    
+    console.log(`✅ GitHub Trending API SUCCESS: ${articles.length} articles`);
+    return articles;
+  } catch (error) {
+    console.error('❌ GitHub Trending API failed:', error);
+    return [];
+  }
+}
+
+// ============================================================================
+// SPORTS APIs
+// ============================================================================
+
+/**
+ * Try ESPN API (Unofficial, unlimited)
+ * Best for: Sports news, scores, updates
+ */
+async function tryESPNAPI(cat: string, pageSize: number): Promise<NewsAPIArticle[]> {
+  try {
+    console.log('🔄 Trying ESPN API (Unlimited)...');
+    
+    // ESPN API provides various sports news
+    const response = await axios.get(
+      'http://site.api.espn.com/apis/site/v2/sports/news',
+      { timeout: 8000 }
+    );
+    
+    const articles = response.data.articles?.slice(0, pageSize).map((article: any) => ({
+      source: { id: "espn", name: "ESPN" },
+      author: article.byline || "ESPN Staff",
+      title: article.headline,
+      description: article.description || article.headline,
+      url: article.links?.web?.href || "https://espn.com",
+      urlToImage: article.images?.[0]?.url || "https://images.unsplash.com/photo-1461896836934-ffe607ba8211?w=800&h=600&fit=crop",
+      publishedAt: article.published || new Date().toISOString(),
+      content: article.story || article.description,
+    })) || [];
+    
+    console.log(`✅ ESPN API SUCCESS: ${articles.length} articles`);
+    return articles;
+  } catch (error) {
+    console.error('❌ ESPN API failed:', error);
+    return [];
+  }
+}
+
+/**
+ * Try TheSportsDB API (30/min free)
+ * Best for: Sports events, team info
+ */
+async function trySportsDBAPI(pageSize: number): Promise<NewsAPIArticle[]> {
+  try {
+    if (!SPORTSDB_API_KEY) return [];
+    
+    console.log('🔄 Trying TheSportsDB API (30/min)...');
+    
+    // Get latest events (can be converted to news format)
+    const response = await axios.get(
+      `https://www.thesportsdb.com/api/v1/json/${SPORTSDB_API_KEY}/eventslast.php?id=4328`,
+      { timeout: 8000 }
+    );
+    
+    const events = response.data.results?.slice(0, pageSize) || [];
+    const articles = events.map((event: any) => ({
+      source: { id: "sportsdb", name: "TheSportsDB" },
+      author: "TheSportsDB",
+      title: `${event.strEvent}: ${event.strHomeTeam} vs ${event.strAwayTeam}`,
+      description: event.strEventDescription || `${event.strSport} match`,
+      url: event.strVideo || "https://www.thesportsdb.com/",
+      urlToImage: event.strThumb || event.strSquare || "https://images.unsplash.com/photo-1522778119026-d647f0596c20?w=800&h=600&fit=crop",
+      publishedAt: event.dateEvent ? new Date(event.dateEvent).toISOString() : new Date().toISOString(),
+      content: `${event.strHomeTeam} ${event.intHomeScore || 0} - ${event.intAwayScore || 0} ${event.strAwayTeam}`,
+    }));
+    
+    console.log(`✅ TheSportsDB API SUCCESS: ${articles.length} articles`);
+    return articles;
+  } catch (error) {
+    console.error('❌ TheSportsDB API failed:', error);
+    return [];
+  }
+}
+
+// ============================================================================
+// BUSINESS APIs
+// ============================================================================
+
+/**
+ * Try Alpha Vantage API (25/day for news)
+ * Best for: Financial news, market updates
+ */
+async function tryAlphaVantageAPI(pageSize: number): Promise<NewsAPIArticle[]> {
+  try {
+    if (!ALPHA_VANTAGE_API_KEY) return [];
+    
+    console.log('🔄 Trying Alpha Vantage API (25/day)...');
+    
+    const response = await axios.get(
+      `https://www.alphavantage.co/query?function=NEWS_SENTIMENT&apikey=${ALPHA_VANTAGE_API_KEY}`,
+      { timeout: 8000 }
+    );
+    
+    const feed = response.data.feed?.slice(0, pageSize) || [];
+    const articles = feed.map((item: any) => ({
+      source: { id: "alpha-vantage", name: item.source || "Alpha Vantage" },
+      author: item.authors?.[0] || item.source || "Alpha Vantage",
+      title: item.title,
+      description: item.summary || item.title,
+      url: item.url,
+      urlToImage: item.banner_image || "https://images.unsplash.com/photo-1611974789855-9c2a0a7236a3?w=800&h=600&fit=crop",
+      publishedAt: item.time_published ? new Date(item.time_published).toISOString() : new Date().toISOString(),
+      content: item.summary || item.title,
+    }));
+    
+    console.log(`✅ Alpha Vantage API SUCCESS: ${articles.length} articles`);
+    return articles;
+  } catch (error) {
+    console.error('❌ Alpha Vantage API failed:', error);
+    return [];
+  }
+}
+
+/**
+ * Try Marketaux API (100/day free)
+ * Best for: Market news, financial analysis
+ */
+async function tryMarketauxAPI(pageSize: number): Promise<NewsAPIArticle[]> {
+  try {
+    if (!MARKETAUX_API_KEY) return [];
+    
+    console.log('🔄 Trying Marketaux API (100/day)...');
+    
+    const response = await axios.get(
+      `https://api.marketaux.com/v1/news/all?api_token=${MARKETAUX_API_KEY}&limit=${pageSize}`,
+      { timeout: 8000 }
+    );
+    
+    const articles = response.data.data?.map((article: any) => ({
+      source: { id: "marketaux", name: article.source || "Marketaux" },
+      author: article.source || "Marketaux",
+      title: article.title,
+      description: article.description || article.snippet || article.title,
+      url: article.url,
+      urlToImage: article.image_url || "https://images.unsplash.com/photo-1590283603385-17ffb3a7f29f?w=800&h=600&fit=crop",
+      publishedAt: article.published_at,
+      content: article.description || article.snippet,
+    })) || [];
+    
+    console.log(`✅ Marketaux API SUCCESS: ${articles.length} articles`);
+    return articles;
+  } catch (error) {
+    console.error('❌ Marketaux API failed:', error);
+    return [];
+  }
+}
+
+// ============================================================================
+// HEALTH APIs
+// ============================================================================
+
+/**
+ * Try PubMed API (Unlimited, no key needed)
+ * Best for: Medical research, health studies
+ */
+async function tryPubMedAPI(pageSize: number): Promise<NewsAPIArticle[]> {
+  try {
+    console.log('🔄 Trying PubMed API (Unlimited, no quota)...');
+    
+    // Search for recent health articles
+    const searchResponse = await axios.get(
+      `https://eutils.ncbi.nlm.nih.gov/entrez/eutils/esearch.fcgi?db=pubmed&term=health+news&retmax=${pageSize}&retmode=json&sort=date`,
+      { timeout: 8000 }
+    );
+    
+    const ids = searchResponse.data.esearchresult?.idlist || [];
+    if (ids.length === 0) return [];
+    
+    // Fetch article details
+    const summaryResponse = await axios.get(
+      `https://eutils.ncbi.nlm.nih.gov/entrez/eutils/esummary.fcgi?db=pubmed&id=${ids.join(',')}&retmode=json`,
+      { timeout: 8000 }
+    );
+    
+    const articles: NewsAPIArticle[] = [];
+    const result = summaryResponse.data.result;
+    
+    for (const id of ids) {
+      const article = result[id];
+      if (article && article.title) {
+        articles.push({
+          source: { id: "pubmed", name: "PubMed" },
+          author: article.authors?.[0]?.name || "PubMed",
+          title: article.title,
+          description: article.source || article.title,
+          url: `https://pubmed.ncbi.nlm.nih.gov/${id}/`,
+          urlToImage: "https://images.unsplash.com/photo-1576091160399-112ba8d25d1d?w=800&h=600&fit=crop",
+          publishedAt: article.pubdate ? new Date(article.pubdate).toISOString() : new Date().toISOString(),
+          content: article.source || article.title,
+        });
+      }
+    }
+    
+    console.log(`✅ PubMed API SUCCESS: ${articles.length} articles`);
+    return articles;
+  } catch (error) {
+    console.error('❌ PubMed API failed:', error);
+    return [];
+  }
+}
+
+/**
+ * Try CDC RSS Feed (Unlimited via RSS2JSON)
+ * Best for: Health alerts, CDC updates
+ */
+async function tryCDCRSSAPI(pageSize: number): Promise<NewsAPIArticle[]> {
+  try {
+    console.log('🔄 Trying CDC RSS Feed (Unlimited)...');
+    
+    const rssUrl = 'https://tools.cdc.gov/api/v2/resources/media/132608.rss';
+    const response = await axios.get(
+      `https://api.rss2json.com/v1/api.json?rss_url=${encodeURIComponent(rssUrl)}&api_key=${RSS2JSON_API_KEY || ''}&count=${pageSize}`,
+      { timeout: 8000 }
+    );
+    
+    const articles = response.data.items?.map((item: any) => ({
+      source: { id: "cdc", name: "CDC" },
+      author: "Centers for Disease Control",
+      title: item.title,
+      description: item.description || item.title,
+      url: item.link,
+      urlToImage: item.thumbnail || "https://images.unsplash.com/photo-1584982751601-97dcc096659c?w=800&h=600&fit=crop",
+      publishedAt: item.pubDate,
+      content: item.content || item.description,
+    })) || [];
+    
+    console.log(`✅ CDC RSS API SUCCESS: ${articles.length} articles`);
+    return articles;
+  } catch (error) {
+    console.error('❌ CDC RSS API failed:', error);
+    return [];
+  }
+}
+
+// ============================================================================
+// ENTERTAINMENT APIs
+// ============================================================================
+
+/**
+ * Try TMDB API (1M/month - excellent limit)
+ * Best for: Movies, TV shows news
+ */
+async function tryTMDBAPI(pageSize: number): Promise<NewsAPIArticle[]> {
+  try {
+    if (!TMDB_API_KEY) return [];
+    
+    console.log('🔄 Trying TMDB API (1M/month)...');
+    
+    // Get trending movies/shows
+    const response = await axios.get(
+      `https://api.themoviedb.org/3/trending/all/day?api_key=${TMDB_API_KEY}`,
+      { timeout: 8000 }
+    );
+    
+    const articles = response.data.results?.slice(0, pageSize).map((item: any) => ({
+      source: { id: "tmdb", name: "The Movie Database" },
+      author: "TMDB",
+      title: item.title || item.name || "Trending Entertainment",
+      description: item.overview || item.title || item.name,
+      url: `https://www.themoviedb.org/${item.media_type}/${item.id}`,
+      urlToImage: item.poster_path ? `https://image.tmdb.org/t/p/w500${item.poster_path}` : 
+                  item.backdrop_path ? `https://image.tmdb.org/t/p/w500${item.backdrop_path}` :
+                  "https://images.unsplash.com/photo-1574267432644-f5810a9ae4e4?w=800&h=600&fit=crop",
+      publishedAt: item.release_date || item.first_air_date || new Date().toISOString(),
+      content: item.overview || `${item.media_type} with ${item.vote_average} rating`,
+    })) || [];
+    
+    console.log(`✅ TMDB API SUCCESS: ${articles.length} articles`);
+    return articles;
+  } catch (error) {
+    console.error('❌ TMDB API failed:', error);
+    return [];
+  }
+}
+
+/**
+ * Try TVMaze API (Unlimited, no key needed)
+ * Best for: TV show schedules, updates
+ */
+async function tryTVMazeAPI(pageSize: number): Promise<NewsAPIArticle[]> {
+  try {
+    console.log('🔄 Trying TVMaze API (Unlimited, no quota)...');
+    
+    const response = await axios.get(
+      'https://api.tvmaze.com/schedule',
+      { timeout: 8000 }
+    );
+    
+    const articles = response.data.slice(0, pageSize).map((episode: any) => ({
+      source: { id: "tvmaze", name: "TVMaze" },
+      author: "TVMaze",
+      title: `${episode.show?.name}: ${episode.name}`,
+      description: episode.summary?.replace(/<[^>]*>/g, '') || `New episode of ${episode.show?.name}`,
+      url: episode.url || episode.show?.url || "https://www.tvmaze.com/",
+      urlToImage: episode.image?.original || episode.show?.image?.original || "https://images.unsplash.com/photo-1522869635100-9f4c5e86aa37?w=800&h=600&fit=crop",
+      publishedAt: episode.airstamp || new Date().toISOString(),
+      content: episode.summary?.replace(/<[^>]*>/g, '') || episode.name,
+    }));
+    
+    console.log(`✅ TVMaze API SUCCESS: ${articles.length} articles`);
+    return articles;
+  } catch (error) {
+    console.error('❌ TVMaze API failed:', error);
+    return [];
+  }
+}
+
+// ============================================================================
+// WORLD NEWS RSS APIs
+// ============================================================================
+
+/**
+ * Try BBC RSS Feed (Unlimited via RSS2JSON)
+ * Best for: International news, world events
+ */
+async function tryBBCRSSAPI(pageSize: number): Promise<NewsAPIArticle[]> {
+  try {
+    console.log('🔄 Trying BBC RSS Feed (Unlimited)...');
+    
+    const rssUrl = 'http://feeds.bbci.co.uk/news/world/rss.xml';
+    const response = await axios.get(
+      `https://api.rss2json.com/v1/api.json?rss_url=${encodeURIComponent(rssUrl)}&api_key=${RSS2JSON_API_KEY || ''}&count=${pageSize}`,
+      { timeout: 8000 }
+    );
+    
+    const articles = response.data.items?.map((item: any) => ({
+      source: { id: "bbc", name: "BBC News" },
+      author: "BBC News",
+      title: item.title,
+      description: item.description || item.title,
+      url: item.link,
+      urlToImage: item.thumbnail || "https://images.unsplash.com/photo-1523995462485-3d171b5c8fa9?w=800&h=600&fit=crop",
+      publishedAt: item.pubDate,
+      content: item.content || item.description,
+    })) || [];
+    
+    console.log(`✅ BBC RSS API SUCCESS: ${articles.length} articles`);
+    return articles;
+  } catch (error) {
+    console.error('❌ BBC RSS API failed:', error);
+    return [];
+  }
+}
+
+/**
+ * Try Reuters RSS Feed (Unlimited via RSS2JSON)
+ * Best for: Breaking news, world coverage
+ */
+async function tryReutersRSSAPI(pageSize: number): Promise<NewsAPIArticle[]> {
+  try {
+    console.log('🔄 Trying Reuters RSS Feed (Unlimited)...');
+    
+    const rssUrl = 'https://www.reutersagency.com/feed/';
+    const response = await axios.get(
+      `https://api.rss2json.com/v1/api.json?rss_url=${encodeURIComponent(rssUrl)}&api_key=${RSS2JSON_API_KEY || ''}&count=${pageSize}`,
+      { timeout: 8000 }
+    );
+    
+    const articles = response.data.items?.map((item: any) => ({
+      source: { id: "reuters", name: "Reuters" },
+      author: "Reuters",
+      title: item.title,
+      description: item.description || item.title,
+      url: item.link,
+      urlToImage: item.thumbnail || "https://images.unsplash.com/photo-1585829365295-ab7cd400c167?w=800&h=600&fit=crop",
+      publishedAt: item.pubDate,
+      content: item.content || item.description,
+    })) || [];
+    
+    console.log(`✅ Reuters RSS API SUCCESS: ${articles.length} articles`);
+    return articles;
+  } catch (error) {
+    console.error('❌ Reuters RSS API failed:', error);
+    return [];
+  }
+}
+
+// OLD sequential fallback code removed - replaced with optimized routing above
 
 /**
  * Comprehensive fallback data when all APIs fail
@@ -1005,6 +1679,19 @@ function getFallbackNews(category: CategoryType, pageSize: number = 20): NewsAPI
         urlToImage: "https://images.unsplash.com/photo-1551292831-023188e78222?w=800&h=600&fit=crop",
         publishedAt: new Date(Date.now() - 8 * 60 * 60 * 1000).toISOString(),
         content: "Global online event generated record-breaking engagement across all major social media platforms simultaneously.",
+      },
+    ],
+    scores: [
+      // Live scores are handled by liveScores.ts, this is just for fallback
+      {
+        source: { id: "espn", name: "ESPN" },
+        author: "Sports Desk",
+        title: "Live Scores Available in Dedicated Scores Section",
+        description: "Real-time football and cricket scores are fetched from specialized sports APIs. Switch to Live Scores tab for real-time updates.",
+        url: "https://www.espn.com",
+        urlToImage: "https://images.unsplash.com/photo-1461896836934-ffe607ba8211?w=800&h=600&fit=crop",
+        publishedAt: new Date().toISOString(),
+        content: "This is a placeholder. Live scores are handled by a dedicated service with 60-second updates.",
       },
     ],
   };

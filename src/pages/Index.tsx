@@ -24,9 +24,11 @@ import {
   ExternalLink,
   FileText,
   Loader2,
+  Radio,
 } from "lucide-react";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
+import { Badge } from "@/components/ui/badge";
 import {
   Popover,
   PopoverContent,
@@ -44,6 +46,8 @@ import {
   getTimeAgo,
   generateViewCount,
 } from "@/services/newsAggregator";
+import { fetchLiveScores, getFallbackScores } from "@/services/liveScores";
+import { ScoreCard } from "@/components/ScoreCard";
 import {
   enhanceArticlesBatch,
   enhanceArticleWithLLM,
@@ -54,6 +58,7 @@ import type {
   CategoryTheme,
   NewsAPIArticle,
   EnhancedArticle,
+  LiveScore,
 } from "@/types/news";
 
 const Index = () => {
@@ -141,6 +146,7 @@ const Index = () => {
     { id: "trending" as CategoryType, name: "Trending", icon: Flame },
     { id: "technology" as CategoryType, name: "Technology", icon: Cpu },
     { id: "sports" as CategoryType, name: "Sports", icon: Trophy },
+    { id: "scores" as CategoryType, name: "Live Scores", icon: Radio },
     { id: "business" as CategoryType, name: "Business", icon: Briefcase },
     { id: "health" as CategoryType, name: "Health", icon: Heart },
     { id: "entertainment" as CategoryType, name: "Entertainment", icon: Film },
@@ -165,6 +171,10 @@ const Index = () => {
       if (debouncedSearch) {
         return await searchNews(debouncedSearch);
       }
+      // Don't fetch regular news for scores category
+      if (activeCategory === 'scores') {
+        return [];
+      }
       // Fetch more articles for lazy loading (50 instead of 30)
       return await fetchNewsByCategory(activeCategory, 50);
     },
@@ -172,6 +182,29 @@ const Index = () => {
     refetchInterval: 2 * 60 * 60 * 1000, // Refetch every 2 hours (7200000 ms)
     refetchOnWindowFocus: false, // Don't refetch on tab focus
     refetchOnReconnect: false, // Don't refetch on reconnect
+  });
+
+  // Fetch live scores (60 second cache)
+  const {
+    data: liveScoresData,
+    isLoading: scoresLoading,
+    error: scoresError,
+    refetch: refetchScores
+  } = useQuery({
+    queryKey: ["live-scores"],
+    queryFn: async () => {
+      try {
+        const scores = await fetchLiveScores();
+        return scores.length > 0 ? scores : getFallbackScores();
+      } catch (error) {
+        console.error('Failed to fetch live scores:', error);
+        return getFallbackScores();
+      }
+    },
+    staleTime: 60 * 1000, // 60 seconds (1 minute)
+    refetchInterval: 60 * 1000, // Refetch every 60 seconds for live updates
+    refetchOnWindowFocus: true, // Refetch when user returns to tab
+    enabled: activeCategory === 'scores', // Only fetch when on scores tab
   });
 
   // Fetch trending articles (2 from each category)
@@ -875,7 +908,65 @@ const Index = () => {
             )}
           </div>
 
-          {(isLoading || (activeCategory === "trending" && trendingLoading)) ? (
+          {/* Live Scores Section */}
+          {activeCategory === 'scores' ? (
+            scoresLoading ? (
+              <NewsGridSkeleton count={6} />
+            ) : scoresError ? (
+              <ErrorState
+                message="Failed to load live scores. Please check your API configuration or try again later."
+                onRetry={() => refetchScores()}
+              />
+            ) : !liveScoresData || liveScoresData.length === 0 ? (
+              <EmptyState message="No live matches at the moment. Check back soon!" />
+            ) : (
+              <>
+                {/* Auto-refresh indicator */}
+                <div className="flex items-center justify-between mb-6 px-4">
+                  <div className="flex items-center gap-2">
+                    <Radio className="w-5 h-5 text-red-500 animate-pulse" />
+                    <span className="text-white/80 font-semibold">Live Scores</span>
+                    <Badge variant="destructive" className="animate-pulse">
+                      Auto-updates every 60s
+                    </Badge>
+                  </div>
+                  <Button
+                    onClick={() => refetchScores()}
+                    variant="outline"
+                    size="sm"
+                    className="gap-2"
+                  >
+                    <Zap className="w-4 h-4" />
+                    Refresh Now
+                  </Button>
+                </div>
+
+                {/* Scores Grid */}
+                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4 sm:gap-6">
+                  {liveScoresData.map((score, idx) => (
+                    <div
+                      key={score.id}
+                      style={{
+                        animation: `fadeInUp 0.6s ease-out ${idx * 0.1}s both`,
+                      }}
+                    >
+                      <ScoreCard score={score} />
+                    </div>
+                  ))}
+                </div>
+
+                {/* Category separator */}
+                <div className="mt-12 mb-8 flex items-center gap-4">
+                  <div className="flex-1 h-px bg-gradient-to-r from-transparent via-white/20 to-transparent" />
+                  <span className="text-white/60 text-sm font-medium">
+                    {liveScoresData.filter(s => s.sport === 'football').length} Football •{' '}
+                    {liveScoresData.filter(s => s.sport === 'cricket').length} Cricket
+                  </span>
+                  <div className="flex-1 h-px bg-gradient-to-r from-transparent via-white/20 to-transparent" />
+                </div>
+              </>
+            )
+          ) : (isLoading || (activeCategory === "trending" && trendingLoading)) ? (
             <NewsGridSkeleton count={6} />
           ) : error ? (
             <ErrorState

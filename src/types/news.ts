@@ -51,6 +51,7 @@ export type CategoryType =
   | "technology"
   | "health"
   | "sports"
+  | "scores"  // Live football & cricket scores
   | "entertainment"
   | "world";
 
@@ -60,4 +61,47 @@ export interface CategoryTheme {
   accent: string;
   text: string;
   glow: string;
+}
+
+// Live Scores interfaces
+export interface LiveScore {
+  id: string;
+  sport: 'football' | 'cricket';
+  status: 'live' | 'scheduled' | 'finished';
+  league: string;
+  homeTeam: {
+    name: string;
+    logo?: string;
+    score?: number | string;
+  };
+  awayTeam: {
+    name: string;
+    logo?: string;
+    score?: number | string;
+  };
+  matchTime: string;
+  venue?: string;
+  startTime?: string;
+  url?: string;
+  source: string;
+  lastUpdated: string;
+}
+
+export interface CricketScore extends LiveScore {
+  sport: 'cricket';
+  homeTeam: {
+    name: string;
+    logo?: string;
+    score?: string; // "250/5 (45.3 overs)"
+    innings?: string;
+  };
+  awayTeam: {
+    name: string;
+    logo?: string;
+    score?: string;
+    innings?: string;
+  };
+  currentOver?: string;
+  runRate?: string;
+  target?: string;
 }
