@@ -1008,14 +1008,14 @@ const Index = () => {
                             </button>
                           </PopoverTrigger>
                           <PopoverContent
-                            className="w-[calc(100vw-2rem)] sm:w-[400px] md:w-[450px] max-h-[70vh] bg-black/80 backdrop-blur-3xl border border-purple-500/40 text-white p-4 sm:p-5 z-50 shadow-[0_0_50px_rgba(168,85,247,0.4)] rounded-2xl data-[state=open]:animate-in data-[state=closed]:animate-out data-[state=closed]:fade-out-0 data-[state=open]:fade-in-0 data-[state=closed]:zoom-out-95 data-[state=open]:zoom-in-95 data-[side=bottom]:slide-in-from-top-2 data-[side=left]:slide-in-from-right-2 data-[side=right]:slide-in-from-left-2 data-[side=top]:slide-in-from-bottom-2"
+                            className="w-[calc(100vw-2rem)] sm:w-[400px] md:w-[450px] max-h-[70vh] bg-black/80 backdrop-blur-3xl border border-purple-500/40 text-white p-4 sm:p-5 z-50 shadow-[0_0_50px_rgba(168,85,247,0.4)] rounded-2xl overflow-hidden data-[state=open]:animate-in data-[state=closed]:animate-out data-[state=closed]:fade-out-0 data-[state=open]:fade-in-0 data-[state=closed]:zoom-out-95 data-[state=open]:zoom-in-95 data-[side=bottom]:slide-in-from-top-2 data-[side=left]:slide-in-from-right-2 data-[side=right]:slide-in-from-left-2 data-[side=top]:slide-in-from-bottom-2"
                             onClick={(e) => e.stopPropagation()}
                             side="top"
                             align="center"
                             sideOffset={10}
                           >
-                            <div className="space-y-3">
-                              <div className="flex items-center justify-between pb-3 border-b border-purple-500/30">
+                            <div className="space-y-3 h-full flex flex-col">
+                              <div className="flex items-center justify-between pb-3 border-b border-purple-500/30 flex-shrink-0">
                                 <div className="flex items-center space-x-2">
                                   <Sparkles className="w-5 h-5 text-purple-400 animate-pulse" />
                                   <h4 className="font-bold text-base sm:text-lg bg-gradient-to-r from-purple-400 via-pink-400 to-purple-400 bg-clip-text text-transparent">
@@ -1023,7 +1023,7 @@ const Index = () => {
                                   </h4>
                                 </div>
                               </div>
-                              <div className="overflow-y-auto max-h-[55vh] pr-2 scrollbar-thin scrollbar-thumb-purple-500/70 scrollbar-track-purple-500/10">
+                              <div className="overflow-y-scroll max-h-[55vh] pr-2 scrollbar-thin scrollbar-thumb-purple-500/70 scrollbar-track-purple-500/10 flex-1">
                                 {loadingSummary === article.url ? (
                                   <div className="flex items-center justify-center py-8">
                                     <Loader2 className="w-8 h-8 text-purple-400 animate-spin" />
@@ -1033,7 +1033,7 @@ const Index = () => {
                                     {/* Main Summary */}
                                     <div className="bg-gradient-to-br from-purple-500/20 to-pink-500/20 rounded-xl p-4 border border-purple-500/30 backdrop-blur-sm">
                                       <p className="text-gray-100 text-sm sm:text-base leading-relaxed">
-                                        {summaries.get(article.url)?.split('.')[0]}.
+                                        {summaries.get(article.url)}
                                       </p>
                                     </div>
                                     
@@ -1047,7 +1047,7 @@ const Index = () => {
                                         {summaries.get(article.url)
                                           ?.split(/[.!?]+/)
                                           .filter(s => s.trim().length > 20)
-                                          .slice(1, 5)
+                                          .slice(1, 8)
                                           .map((point, idx) => (
                                             <li key={idx} className="flex items-start space-x-3 text-sm sm:text-base group">
                                               <span className="text-purple-400 text-lg flex-shrink-0 group-hover:scale-125 transition-transform">•</span>
