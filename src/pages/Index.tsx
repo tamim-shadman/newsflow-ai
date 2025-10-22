@@ -394,14 +394,14 @@ const Index = () => {
     );
   };
 
-  const handleArticleClick = (url?: string) => {
+  const handleArticleClick = useCallback((url?: string, title?: string) => {
     if (url) {
-      console.log('🖱️ Article clicked, opening URL:', url);
+      console.log('🖱️ Article clicked:', title?.substring(0, 40) + '...', '→', url);
       window.open(url, "_blank", "noopener,noreferrer");
     } else {
-      console.warn('⚠️ Article clicked but no URL provided');
+      console.warn('⚠️ Article clicked but no URL provided for:', title);
     }
-  };
+  }, []);
 
   const handleSubscribe = () => {
     if (email && email.includes("@")) {
@@ -669,28 +669,10 @@ const Index = () => {
           ) : featuredNews.length > 0 ? (
             <div className="relative group">
               <div className="relative h-[400px] sm:h-[500px] lg:h-[550px] rounded-2xl sm:rounded-3xl overflow-hidden shadow-2xl ring-2 ring-white/10">
-                {featuredNews.map((news, index) => {
-                  // Debug logging for carousel URLs
-                  if (index === 0) {
-                    console.log('🎠 Carousel Items:', featuredNews.map((n, i) => ({ 
-                      index: i, 
-                      title: n.title.substring(0, 30) + '...', 
-                      url: n.url 
-                    })));
-                  }
-                  
-                  return (
+                {featuredNews.map((news, index) => (
                   <div
                     key={news.id}
-                    onClick={() => {
-                      console.log(`🖱️ Carousel click - Index ${index}: ${news.title.substring(0, 40)}...`);
-                      console.log(`📍 Opening URL: ${news.url}`);
-                      if (news.url) {
-                        window.open(news.url, "_blank", "noopener,noreferrer");
-                      } else {
-                        console.warn('⚠️ No URL available for this article');
-                      }
-                    }}
+                    onClick={() => handleArticleClick(news.url, news.title)}
                     className={`absolute inset-0 transition-all duration-1000 transform cursor-pointer ${
                       index === currentSlide
                         ? "opacity-100 scale-100 rotate-0"
@@ -811,8 +793,7 @@ const Index = () => {
                       </div>
                     </div>
                   </div>
-                  );
-                })}
+                ))}
               </div>
 
               {featuredNews.length > 1 && (

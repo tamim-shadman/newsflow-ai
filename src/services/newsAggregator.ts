@@ -8,6 +8,7 @@ const NEWS_API_URL = IS_PRODUCTION ? "/api/news" : null;
 
 // API keys for local development (from .env)
 const NEWSDATA_API_KEY = import.meta.env.NEWSDATA_API_KEY;
+const NEWSDATA_BD_API_KEY = "pub_e7edc2b3b7e44a78b891c814f80a776c"; // Bangladesh news API key
 const CURRENTS_API_KEY = import.meta.env.CURRENTS_API_KEY;
 const GNEWS_API_KEY = import.meta.env.GNEWS_API_KEY;
 const GUARDIAN_API_KEY = import.meta.env.GUARDIAN_API_KEY;
@@ -95,6 +96,76 @@ function getPersistentFallback(key: string): NewsAPIArticle[] | null {
     return fallback;
   }
   return null;
+}
+
+/**
+ * Fetch Bangladesh news from NewsData.io
+ * @param pageSize - Number of articles to fetch
+ * @returns Promise with Bangladesh news articles
+ */
+export async function fetchBangladeshNews(pageSize: number = 20): Promise<NewsAPIArticle[]> {
+  const cacheKey = `bangladesh_news_${pageSize}`;
+  
+  try {
+    // Check cache first
+    const cached = getFromCache(cacheKey);
+    if (cached) {
+      console.log('✅ Using cached Bangladesh news');
+      return cached;
+    }
+
+    console.log('🇧🇩 Fetching Bangladesh news from NewsData.io...');
+
+    const response = await axios.get(
+      `https://newsdata.io/api/1/news?apikey=${NEWSDATA_BD_API_KEY}&country=bd&language=en`,
+      { timeout: 10000 }
+    );
+
+    if (response.data.status === 'success' && response.data.results) {
+      const articles = response.data.results.slice(0, pageSize).map((article: {
+        creator?: string[];
+        title: string;
+        description?: string;
+        link: string;
+        image_url?: string;
+        pubDate: string;
+        content?: string;
+        source_id?: string;
+        source_name?: string;
+      }) => ({
+        source: { id: article.source_id || "bd-news", name: article.source_name || "Bangladesh News" },
+        author: article.creator?.[0] || "Bangladesh Reporter",
+        title: article.title,
+        description: article.description || article.title,
+        url: article.link,
+        urlToImage: article.image_url || "https://images.unsplash.com/photo-1609137144813-7d9921338f24?w=800&h=600&fit=crop",
+        publishedAt: article.pubDate,
+        content: article.content || article.description,
+      }));
+
+      console.log(`✅ Successfully fetched ${articles.length} Bangladesh news articles`);
+      
+      // Cache the results
+      setCache(cacheKey, articles);
+      
+      return articles;
+    }
+
+    throw new Error('No Bangladesh news data received');
+  } catch (error) {
+    console.error('❌ Error fetching Bangladesh news:', error);
+    
+    // Fallback to stale cache
+    const staleCache = cache.get(cacheKey);
+    if (staleCache) {
+      console.log('⚠️ Using stale cache for Bangladesh news');
+      return staleCache.data;
+    }
+
+    // Return empty array if all fails
+    console.log('⚠️ No Bangladesh news available');
+    return [];
+  }
 }
 
 /**

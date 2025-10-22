@@ -13,18 +13,31 @@ const bartModel = sdk.model("facebook/bart-large-cnn");
 // Groq as FALLBACK when BART fails
 const IS_PRODUCTION = import.meta.env.PROD;
 const GROQ_API_URL = IS_PRODUCTION ? "/api/chat" : "https://api.groq.com/openai/v1/chat/completions";
-const GROQ_API_KEY = import.meta.env.GROQ_API_KEY;
+const GROQ_API_KEY = import.meta.env.VITE_GROQ_API_KEY || import.meta.env.GROQ_API_KEY || "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";
 const GROQ_MODEL = "llama-3.3-70b-versatile";
 
 // NVIDIA as SECOND FALLBACK when Groq fails
-const NVIDIA_API_KEY = import.meta.env.NVIDIA_API_KEY;
+const NVIDIA_API_KEY = import.meta.env.VITE_NVIDIA_API_KEY || import.meta.env.NVIDIA_API_KEY || "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";
 const NVIDIA_API_URL = "https://integrate.api.nvidia.com/v1";
 const NVIDIA_MODEL = "speakleash/bielik-11b-v2.6-instruct";
 
 // Gemini as THIRD FALLBACK when NVIDIA fails (using official Google GenAI SDK)
-const GEMINI_API_KEY = import.meta.env.GEMINI_API_KEY;
+const GEMINI_API_KEY = import.meta.env.VITE_GEMINI_API_KEY || import.meta.env.GEMINI_API_KEY || "AIzaSyB19UMtCWDyKky4mBiIWHyRXWXUCMQ4ed4";
 const GEMINI_MODEL = "gemini-2.0-flash-exp";
-const geminiClient = new GoogleGenAI({ apiKey: GEMINI_API_KEY });
+let geminiClient: GoogleGenAI | null = null;
+
+// Initialize Gemini client only if API key is available
+try {
+  if (GEMINI_API_KEY && GEMINI_API_KEY !== "YOUR_GEMINI_API_KEY") {
+    geminiClient = new GoogleGenAI({ apiKey: GEMINI_API_KEY });
+    console.log("✅ Gemini AI initialized");
+  } else {
+    console.warn("⚠️ Gemini API key not configured - will use other providers");
+  }
+} catch (error) {
+  console.warn("⚠️ Failed to initialize Gemini:", error);
+  geminiClient = null;
+}
 
 interface GroqMessage {
   role: "system" | "user" | "assistant";
@@ -124,6 +137,11 @@ async function enhanceWithGemini(
   console.log(`🔄 [FALLBACK 3] Summarizing with Gemini: ${article.title.substring(0, 50)}...`);
 
   try {
+    // Check if Gemini client is available
+    if (!geminiClient) {
+      throw new Error("Gemini client not initialized - API key missing");
+    }
+
     // Use the new Google GenAI SDK
     const response = await geminiClient.models.generateContent({
       model: GEMINI_MODEL,
