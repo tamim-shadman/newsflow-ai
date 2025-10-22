@@ -732,21 +732,23 @@ const Index = () => {
           ) : featuredNews.length > 0 ? (
             <div className="relative group">
               <div className="relative h-[400px] sm:h-[500px] lg:h-[550px] rounded-2xl sm:rounded-3xl overflow-hidden shadow-2xl ring-2 ring-white/10">
-                {featuredNews.map((news, index) => (
-                  <div
-                    key={`${news.id}-${index}`}
-                    onClick={() => handleArticleClick(news.url, news.title)}
-                    className={`absolute inset-0 transition-all duration-1000 transform cursor-pointer ${
-                      index === currentSlide
-                        ? "opacity-100 scale-100 rotate-0 z-20 pointer-events-auto"
-                        : index ===
-                          (currentSlide - 1 + featuredNews.length) %
-                            featuredNews.length
-                        ? "opacity-0 scale-95 -rotate-2 z-10 pointer-events-none"
-                        : "opacity-0 scale-105 rotate-2 z-10 pointer-events-none"
-                    }`}
-                    style={{ pointerEvents: index === currentSlide ? "auto" : "none" }}
-                  >
+                {featuredNews.map((news, index) => {
+                  const isActive = index === currentSlide;
+                  const isPrev = index === (currentSlide - 1 + featuredNews.length) % featuredNews.length;
+                  return (
+                    <div
+                      key={`${news.id}-${index}`}
+                      onClick={() => handleArticleClick(news.url, news.title)}
+                      className={`absolute inset-0 transition-all duration-1000 transform cursor-pointer ${
+                        isActive
+                          ? "opacity-100 scale-100 rotate-0 z-30"
+                          : isPrev
+                            ? "opacity-0 scale-95 -rotate-2 z-10"
+                            : "opacity-0 scale-105 rotate-2 z-10"
+                      }`}
+                      style={{ pointerEvents: isActive ? "auto" : "none" }}
+                    >
+                      <div className="relative h-full w-full pointer-events-none">
                     <img
                       src={news.image}
                       alt={news.title}
@@ -769,7 +771,7 @@ const Index = () => {
                       ))}
                     </div>
 
-                    <div className="absolute bottom-0 left-0 right-0 p-4 sm:p-6 lg:p-10">
+                        <div className="absolute bottom-0 left-0 right-0 p-4 sm:p-6 lg:p-10 pointer-events-auto">
                       <div className="flex items-center flex-wrap gap-2 sm:gap-3 mb-3 sm:mb-5">
                         {news.isTrending && (
                           <span className="px-2 sm:px-3 py-1 rounded-full text-[10px] sm:text-xs font-bold bg-gradient-to-r from-orange-500 to-red-500 text-white shadow-xl shadow-orange-500/50 animate-pulse-glow flex items-center space-x-1">
@@ -856,8 +858,10 @@ const Index = () => {
                         </button>
                       </div>
                     </div>
-                  </div>
-                ))}
+                      </div>
+                    </div>
+                  );
+                })}
               </div>
 
               {featuredNews.length > 1 && (
@@ -865,13 +869,13 @@ const Index = () => {
                   {/* Navigation Buttons - Responsive */}
                   <button
                     onClick={prevSlide}
-                    className={`absolute left-2 sm:left-6 top-1/2 -translate-y-1/2 p-2 sm:p-4 rounded-full bg-gradient-to-r ${theme.accent} text-white opacity-95 hover:opacity-100 transition-all hover:scale-110 active:scale-95 shadow-2xl ${theme.glow}`}
+                    className={`absolute left-2 sm:left-6 top-1/2 -translate-y-1/2 p-2 sm:p-4 rounded-full bg-gradient-to-r ${theme.accent} text-white opacity-95 hover:opacity-100 transition-all hover:scale-110 active:scale-95 shadow-2xl ${theme.glow} z-40`}
                   >
                     <ChevronLeft className="w-4 h-4 sm:w-6 sm:h-6" />
                   </button>
                   <button
                     onClick={nextSlide}
-                    className={`absolute right-2 sm:right-6 top-1/2 -translate-y-1/2 p-2 sm:p-4 rounded-full bg-gradient-to-r ${theme.accent} text-white opacity-95 hover:opacity-100 transition-all hover:scale-110 active:scale-95 shadow-2xl ${theme.glow}`}
+                    className={`absolute right-2 sm:right-6 top-1/2 -translate-y-1/2 p-2 sm:p-4 rounded-full bg-gradient-to-r ${theme.accent} text-white opacity-95 hover:opacity-100 transition-all hover:scale-110 active:scale-95 shadow-2xl ${theme.glow} z-40`}
                   >
                     <ChevronRight className="w-4 h-4 sm:w-6 sm:h-6" />
                   </button>
