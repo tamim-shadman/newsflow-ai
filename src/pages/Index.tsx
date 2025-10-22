@@ -1,4 +1,11 @@
-import { useState, useEffect, useCallback, useMemo, useRef } from "react";
+import {
+  useState,
+  useEffect,
+  useCallback,
+  useMemo,
+  useRef,
+  type TouchEvent as ReactTouchEvent,
+} from "react";
 import { useQuery } from "@tanstack/react-query";
 import {
   Newspaper,
@@ -76,6 +83,7 @@ const Index = () => {
   const [openSummaryFor, setOpenSummaryFor] = useState<string | null>(null);
   const longPressTimerRef = useRef<number | null>(null);
   const longPressTriggeredRef = useRef(false);
+  const longPressStartPosRef = useRef<{ x: number; y: number } | null>(null);
   
   // Lazy loading state
   const [displayCount, setDisplayCount] = useState(6); // Show 1/5th initially (30 articles / 5 = 6)
@@ -481,15 +489,24 @@ const Index = () => {
       window.clearTimeout(longPressTimerRef.current);
       longPressTimerRef.current = null;
     }
+    longPressStartPosRef.current = null;
   }, []);
 
   const startSummaryLongPress = useCallback(
-    (article: NewsArticle) => {
+  (event: ReactTouchEvent, article: NewsArticle) => {
+      const touch = event.touches[0];
+      if (touch) {
+        longPressStartPosRef.current = {
+          x: touch.clientX,
+          y: touch.clientY,
+        };
+      }
       cancelSummaryLongPress();
       longPressTriggeredRef.current = false;
       longPressTimerRef.current = window.setTimeout(() => {
         longPressTriggeredRef.current = true;
         longPressTimerRef.current = null;
+        longPressStartPosRef.current = null;
         if (article.url) {
           setOpenSummaryFor(article.url);
           handleSummarize(article.url);
@@ -497,6 +514,27 @@ const Index = () => {
       }, 2000);
     },
     [cancelSummaryLongPress, handleSummarize]
+  );
+
+  const handleSummaryTouchMove = useCallback(
+    (event: ReactTouchEvent) => {
+      if (longPressTimerRef.current === null || !longPressStartPosRef.current) {
+        return;
+      }
+
+      const touch = event.touches[0];
+      if (!touch) {
+        return;
+      }
+
+      const deltaX = Math.abs(touch.clientX - longPressStartPosRef.current.x);
+      const deltaY = Math.abs(touch.clientY - longPressStartPosRef.current.y);
+
+      if (deltaX > 10 || deltaY > 10) {
+        cancelSummaryLongPress();
+      }
+    },
+    [cancelSummaryLongPress]
   );
 
   const handleCardClick = useCallback(
@@ -964,10 +1002,10 @@ const Index = () => {
                   onMouseEnter={() => setHoveredCard(article.id)}
                   onMouseLeave={() => setHoveredCard(null)}
                   onClick={() => handleCardClick(article)}
-                  onTouchStart={() => startSummaryLongPress(article)}
+                  onTouchStart={(event) => startSummaryLongPress(event, article)}
                   onTouchEnd={cancelSummaryLongPress}
                   onTouchCancel={cancelSummaryLongPress}
-                  onTouchMove={cancelSummaryLongPress}
+                  onTouchMove={handleSummaryTouchMove}
                   className="group cursor-pointer scroll-mt-24"
                   style={{
                     animation: `fadeInUp 0.6s ease-out ${idx * 0.1}s both`,
