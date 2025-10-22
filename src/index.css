@@ -40,8 +40,43 @@ All colors MUST be HSL.
 
     --glass-bg: 0 0% 100% / 0.05;
     --glass-border: 0 0% 100% / 0.1;
-    
-    /* Category specific colors */
+  }
+
+  .light {
+    --background: 0 0% 96%;
+    --foreground: 0 0% 5%;
+
+    --card: 0 0% 100%;
+    --card-foreground: 0 0% 5%;
+
+    --popover: 0 0% 100%;
+    --popover-foreground: 0 0% 5%;
+
+    --primary: 280 80% 50%;
+    --primary-foreground: 0 0% 100%;
+
+    --secondary: 240 70% 45%;
+    --secondary-foreground: 0 0% 100%;
+
+    --muted: 0 0% 92%;
+    --muted-foreground: 0 0% 35%;
+
+    --accent: 330 80% 50%;
+    --accent-foreground: 0 0% 100%;
+
+    --destructive: 0 84% 55%;
+    --destructive-foreground: 0 0% 100%;
+
+    --border: 0 0% 80%;
+    --input: 0 0% 95%;
+    --ring: 280 80% 50%;
+
+    --glass-bg: 0 0% 100% / 0.85;
+    --glass-border: 0 0% 0% / 0.15;
+  }
+  
+  /* Category specific colors */
+  :root {
     --category-all-start: 280 80% 60%;
     --category-all-mid: 330 80% 60%;
     --category-all-end: 240 70% 65%;
@@ -145,6 +180,28 @@ All colors MUST be HSL.
   }
 }
 
+@keyframes scaleIn {
+  from {
+    opacity: 0;
+    transform: scale(0.92) translateY(-5px);
+  }
+  to {
+    opacity: 1;
+    transform: scale(1) translateY(0);
+  }
+}
+
+@keyframes slideInFromTop {
+  from {
+    opacity: 0;
+    transform: translateY(-10px) scale(0.95);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+}
+
 @keyframes float {
   0%, 100% {
     transform: translateY(0) rotate(0deg);
@@ -219,6 +276,20 @@ All colors MUST be HSL.
   }
 }
 
+@keyframes flipIn {
+  0% {
+    transform: perspective(1000px) rotateY(-90deg);
+    opacity: 0;
+  }
+  50% {
+    opacity: 0.5;
+  }
+  100% {
+    transform: perspective(1000px) rotateY(0deg);
+    opacity: 1;
+  }
+}
+
 .animate-float {
   animation: float 6s ease-in-out infinite;
 }
@@ -249,6 +320,14 @@ All colors MUST be HSL.
 
 .animate-spin-slow {
   animation: spin-slow 3s linear infinite;
+}
+
+.animate-scale-in {
+  animation: scaleIn 0.2s cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+.animate-slide-in {
+  animation: slideInFromTop 0.25s cubic-bezier(0.16, 1, 0.3, 1);
 }
 
 @keyframes scroll {

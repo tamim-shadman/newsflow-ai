@@ -32,6 +32,8 @@ import {
   FileText,
   Loader2,
   X,
+  Moon,
+  Sun,
 } from "lucide-react";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
@@ -43,6 +45,8 @@ import {
 } from "@/components/ui/popover";
 import { NewsGridSkeleton, FeaturedSkeleton } from "@/components/NewsSkeletons";
 import { ErrorState, EmptyState } from "@/components/ErrorState";
+import { useTheme } from "@/contexts/ThemeContext";
+import { useChunkedNews } from "@/hooks/useProgressiveNews";
 import {
   fetchNewsByCategory,
   fetchTrendingNews,
@@ -66,6 +70,7 @@ import type {
 } from "@/types/news";
 
 const Index = () => {
+  const { theme: appTheme, toggleTheme } = useTheme();
   const [activeCategory, setActiveCategory] = useState<CategoryType>("all");
   const [currentSlide, setCurrentSlide] = useState(0);
   const [isTransitioning, setIsTransitioning] = useState(false);
@@ -175,24 +180,24 @@ const Index = () => {
   };
 
   // Fetch news based on active category or search query
+  // Using progressive loading for better UX
   const {
     data: newsData,
     isLoading,
+    isFetching,
     error,
-    refetch,
-  } = useQuery({
-    queryKey: ["news", activeCategory, debouncedSearch],
+    progress: loadingProgress,
+  } = useChunkedNews(debouncedSearch ? "all" : activeCategory);
+  
+  // Search results query (separate from progressive loading)
+  const { data: searchData } = useQuery({
+    queryKey: ["news-search", debouncedSearch],
     queryFn: async () => {
-      if (debouncedSearch) {
-        return await searchNews(debouncedSearch);
-      }
-      // Fetch more articles for lazy loading (50 instead of 30)
-      return await fetchNewsByCategory(activeCategory, 50);
+      if (!debouncedSearch) return null;
+      return await searchNews(debouncedSearch);
     },
-    staleTime: 2 * 60 * 60 * 1000, // 2 hours (match cache TTL)
-    refetchInterval: 2 * 60 * 60 * 1000, // Refetch every 2 hours (7200000 ms)
-    refetchOnWindowFocus: false, // Don't refetch on tab focus
-    refetchOnReconnect: false, // Don't refetch on reconnect
+    enabled: !!debouncedSearch,
+    staleTime: 5 * 60 * 1000, // 5 minutes for search
   });
 
   // Fetch trending articles (2 from each category)
@@ -340,8 +345,10 @@ const Index = () => {
     });
   }, [featuredNews.length]);
 
-  // Use trending data when in trending category, otherwise use regular news data
-  const currentNewsData = activeCategory === "trending" ? trendingData : newsData;
+  // Use trending data when in trending category, search data when searching, otherwise use progressive news data
+  const currentNewsData = debouncedSearch 
+    ? searchData 
+    : (activeCategory === "trending" ? trendingData : newsData);
   
   const newsArticles: NewsArticle[] = useMemo(() => {
     if (!currentNewsData) return [];
@@ -677,14 +684,14 @@ const Index = () => {
                   placeholder="Search news..."
                   value={searchQuery}
                   onChange={(e) => setSearchQuery(e.target.value)}
-                  className="w-full pl-11 pr-4 py-2 bg-white/10 border-white/20 text-white placeholder:text-gray-400 focus:bg-white/15 focus:border-white/40 rounded-full"
+                  className="w-full pl-11 pr-4 py-2 bg-white/10 border-white/20 text-white placeholder:text-gray-400 focus:bg-white/15 focus:border-white/40 rounded-full transition-all"
                 />
               </div>
             </div>
 
             {/* Action Buttons - Responsive */}
             <div className="flex items-center space-x-2 sm:space-x-3">
-              <button className="p-1.5 sm:p-2 rounded-full bg-white/10 backdrop-blur-xl text-white hover:bg-white/20 transition-all border border-white/20">
+              <button className="p-1.5 sm:p-2 rounded-full backdrop-blur-xl bg-white/10 text-white hover:bg-white/20 border border-white/20 transition-all hover:scale-110 active:scale-95">
                 <Bell className="w-4 h-4 sm:w-5 sm:h-5" />
               </button>
               <div
@@ -705,7 +712,7 @@ const Index = () => {
                 placeholder="Search news..."
                 value={searchQuery}
                 onChange={(e) => setSearchQuery(e.target.value)}
-                className="w-full pl-10 pr-4 py-2 bg-white/10 border-white/20 text-white placeholder:text-gray-400 focus:bg-white/15 focus:border-white/40 rounded-full text-sm"
+                className="w-full pl-10 pr-4 py-2 bg-white/10 border-white/20 text-white placeholder:text-gray-400 focus:bg-white/15 focus:border-white/40 rounded-full text-sm transition-all"
               />
             </div>
           </div>
@@ -1020,7 +1027,7 @@ const Index = () => {
           ) : error ? (
             <ErrorState
               message="Failed to load news articles. Please check your API configuration or try again later."
-              onRetry={() => refetch()}
+              onRetry={() => window.location.reload()}
             />
           ) : newsArticles.length === 0 ? (
             <EmptyState
@@ -1032,23 +1039,54 @@ const Index = () => {
             />
           ) : (
             <>
+              {/* Progressive Loading Indicator */}
+              {isFetching && newsArticles.length > 0 && (
+                <div className={`mb-6 p-5 rounded-2xl bg-gradient-to-r ${theme.accent} bg-opacity-10 border-2 border-white/20 backdrop-blur-xl animate-pulse`}>
+                  <div className="flex items-center justify-between">
+                    <div className="flex items-center space-x-3">
+                      <Loader2 className="w-6 h-6 animate-spin text-purple-400" />
+                      <span className="text-sm font-bold text-white">
+                        Loading more articles...
+                      </span>
+                    </div>
+                    <div className="flex items-center space-x-2">
+                      {loadingProgress.first && (
+                        <div className={`w-3 h-3 rounded-full bg-gradient-to-r ${theme.accent} shadow-lg animate-pulse`} />
+                      )}
+                      {loadingProgress.second && (
+                        <div className={`w-3 h-3 rounded-full bg-gradient-to-r ${theme.accent} shadow-lg animate-pulse`} />
+                      )}
+                      {loadingProgress.third && (
+                        <div className={`w-3 h-3 rounded-full bg-gradient-to-r ${theme.accent} shadow-lg animate-pulse`} />
+                      )}
+                    </div>
+                  </div>
+                </div>
+              )}
+              
               <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4 sm:gap-6 lg:gap-8">
-                {displayedArticles.map((article, idx) => (
-                <div
-                  key={article.id}
-                  id={`article-${article.id}`}
-                  onMouseEnter={() => setHoveredCard(article.id)}
-                  onMouseLeave={() => setHoveredCard(null)}
-                  onClick={() => handleCardClick(article)}
-                  onTouchStart={(event) => startSummaryLongPress(event, article)}
-                  onTouchEnd={cancelSummaryLongPress}
-                  onTouchCancel={cancelSummaryLongPress}
-                  onTouchMove={handleSummaryTouchMove}
-                  className="group cursor-pointer scroll-mt-24"
-                  style={{
-                    animation: `fadeInUp 0.6s ease-out ${idx * 0.1}s both`,
-                  }}
-                >
+                {displayedArticles.map((article, idx) => {
+                  // Determine if card is on the left or right edge to adjust hover position
+                  const isFirstColumn = idx % 3 === 0; // First column in 3-col grid
+                  const isLastColumn = idx % 3 === 2; // Last column in 3-col grid
+                  
+                  return (
+                  <div
+                    key={article.id}
+                    id={`article-${article.id}`}
+                    onMouseEnter={() => setHoveredCard(article.id)}
+                    onMouseLeave={() => setHoveredCard(null)}
+                    onClick={() => handleCardClick(article)}
+                    onTouchStart={(event) => startSummaryLongPress(event, article)}
+                    onTouchEnd={cancelSummaryLongPress}
+                    onTouchCancel={cancelSummaryLongPress}
+                    onTouchMove={handleSummaryTouchMove}
+                    className={`group cursor-pointer scroll-mt-24 ${hoveredCard === article.id ? 'z-[150]' : 'z-10'} relative`}
+                    style={{
+                      animation: `fadeInUp 0.6s ease-out ${idx * 0.1}s both`,
+                    }}
+                  >
+                  <div className="relative">
                   <div
                     className={`relative overflow-hidden rounded-2xl sm:rounded-3xl backdrop-blur-2xl bg-white/5 border-2 transition-all duration-500 transform hover:scale-105 active:scale-95 sm:hover:-translate-y-2 shadow-xl hover:shadow-2xl ${
                       hoveredCard === article.id
@@ -1060,11 +1098,7 @@ const Index = () => {
                       <img
                         src={article.image}
                         alt={article.title}
-                        className={`w-full h-full object-cover transition-all duration-700 ${
-                          hoveredCard === article.id
-                            ? "scale-110 rotate-2"
-                            : "scale-100"
-                        }`}
+                        className="w-full h-full object-cover transition-all duration-700"
                         loading="lazy"
                       />
                       <div
@@ -1162,11 +1196,17 @@ const Index = () => {
                             </button>
                           </PopoverTrigger>
                           <PopoverContent
-                            className="relative w-[calc(100vw-2rem)] sm:w-[400px] md:w-[450px] max-h-[70vh] bg-black/80 backdrop-blur-3xl border border-purple-500/40 text-white p-4 sm:p-5 z-50 shadow-[0_0_50px_rgba(168,85,247,0.4)] rounded-2xl overflow-hidden transition-opacity duration-200 data-[state=open]:animate-in data-[state=closed]:animate-out data-[state=closed]:fade-out-0 data-[state=open]:fade-in-0 data-[state=closed]:zoom-out-95 data-[state=open]:zoom-in-95 data-[side=bottom]:slide-in-from-top-2 data-[side=left]:slide-in-from-right-2 data-[side=right]:slide-in-from-left-2 data-[side=top]:slide-in-from-bottom-2"
+                            className={`relative w-[calc(100vw-2rem)] sm:w-[450px] md:w-[500px] max-h-[75vh] ${
+                              appTheme === "dark" 
+                                ? "bg-black/98 border-purple-400/50 text-white shadow-[0_20px_80px_rgba(168,85,247,0.5)]" 
+                                : "bg-white/98 border-purple-500/50 text-gray-900 shadow-[0_20px_80px_rgba(147,51,234,0.3)]"
+                            } backdrop-blur-3xl border-2 p-5 sm:p-6 z-[110] rounded-3xl overflow-hidden animate-slide-in`}
                             onClick={(e) => e.stopPropagation()}
-                            side="top"
+                            side="left"
                             align="center"
-                            sideOffset={10}
+                            sideOffset={25}
+                            avoidCollisions={true}
+                            collisionPadding={20}
                           >
                             <button
                               type="button"
@@ -1174,38 +1214,75 @@ const Index = () => {
                                 e.stopPropagation();
                                 setOpenSummaryFor(null);
                               }}
-                              className="absolute top-3 right-3 p-1.5 rounded-full bg-white/10 hover:bg-white/20 text-white transition-all"
+                              className={`absolute top-4 right-4 p-2 rounded-full ${
+                                appTheme === "dark" 
+                                  ? "bg-white/10 hover:bg-white/20 text-white" 
+                                  : "bg-gray-100 hover:bg-gray-200 text-gray-700"
+                              } transition-all shadow-lg hover:scale-110 active:scale-95`}
                               aria-label="Close summary"
                             >
                               <X className="w-4 h-4" />
                             </button>
-                            <div className="space-y-3 h-full flex flex-col">
-                              <div className="flex items-center justify-between pb-3 border-b border-purple-500/30 flex-shrink-0">
-                                <div className="flex items-center space-x-2">
-                                  <Sparkles className="w-5 h-5 text-purple-400 animate-pulse" />
-                                  <h4 className="font-bold text-base sm:text-lg bg-gradient-to-r from-purple-400 via-pink-400 to-purple-400 bg-clip-text text-transparent">
+                            <div className="space-y-4 h-full flex flex-col">
+                              <div className={`flex items-center justify-between pb-4 border-b-2 ${
+                                appTheme === "dark" ? "border-purple-500/30" : "border-purple-400/40"
+                              } flex-shrink-0`}>
+                                <div className="flex items-center space-x-3">
+                                  <div className={`p-2 rounded-xl ${
+                                    appTheme === "dark" ? "bg-purple-500/20" : "bg-purple-100"
+                                  }`}>
+                                    <Sparkles className={`w-5 h-5 ${
+                                      appTheme === "dark" ? "text-purple-400" : "text-purple-600"
+                                    } animate-pulse`} />
+                                  </div>
+                                  <h4 className={`font-bold text-lg ${
+                                    appTheme === "dark" 
+                                      ? "bg-gradient-to-r from-purple-300 via-pink-300 to-purple-300 bg-clip-text text-transparent" 
+                                      : "bg-gradient-to-r from-purple-600 via-pink-600 to-purple-600 bg-clip-text text-transparent"
+                                  }`}>
                                     AI Summary
                                   </h4>
                                 </div>
                               </div>
-                              <div className="overflow-y-scroll max-h-[55vh] pr-2 scrollbar-thin scrollbar-thumb-purple-500/70 scrollbar-track-purple-500/10 flex-1">
+                              <div className="overflow-y-auto max-h-[60vh] pr-3 scrollbar-thin scrollbar-thumb-purple-500/70 scrollbar-track-purple-500/10 flex-1">
                                 {loadingSummary === article.url ? (
-                                  <div className="flex items-center justify-center py-8">
-                                    <Loader2 className="w-8 h-8 text-purple-400 animate-spin" />
+                                  <div className="flex items-center justify-center py-12">
+                                    <div className="flex flex-col items-center space-y-3">
+                                      <Loader2 className={`w-10 h-10 ${
+                                        appTheme === "dark" ? "text-purple-400" : "text-purple-600"
+                                      } animate-spin`} />
+                                      <p className={`text-sm font-medium ${
+                                        appTheme === "dark" ? "text-gray-400" : "text-gray-600"
+                                      }`}>
+                                        Generating AI summary...
+                                      </p>
+                                    </div>
                                   </div>
                                 ) : summaries.has(article.url) ? (
-                                  <div className="space-y-4">
+                                  <div className="space-y-5">
                                     {/* Main Summary */}
-                                    <div className="bg-gradient-to-br from-purple-500/20 to-pink-500/20 rounded-xl p-4 border border-purple-500/30 backdrop-blur-sm">
-                                      <p className="text-gray-100 text-sm sm:text-base leading-relaxed">
+                                    <div className={`${
+                                      appTheme === "dark" 
+                                        ? "bg-gradient-to-br from-purple-500/20 to-pink-500/20 border-purple-500/30" 
+                                        : "bg-gradient-to-br from-purple-100 to-pink-100 border-purple-300/50"
+                                    } rounded-2xl p-5 border-2 backdrop-blur-sm shadow-lg`}>
+                                      <p className={`${
+                                        appTheme === "dark" ? "text-gray-100" : "text-gray-800"
+                                      } text-sm sm:text-base leading-relaxed font-medium`}>
                                         {summaries.get(article.url)}
                                       </p>
                                     </div>
                                     
                                     {/* Key Points */}
-                                    <div className="space-y-3">
-                                      <h5 className="text-xs sm:text-sm font-bold text-purple-400 uppercase tracking-wider flex items-center space-x-2">
-                                        <span className="w-1 h-4 bg-gradient-to-b from-purple-400 to-pink-400 rounded-full"></span>
+                                    <div className="space-y-4">
+                                      <h5 className={`text-xs sm:text-sm font-bold ${
+                                        appTheme === "dark" ? "text-purple-400" : "text-purple-600"
+                                      } uppercase tracking-wider flex items-center space-x-2`}>
+                                        <span className={`w-1 h-5 ${
+                                          appTheme === "dark" 
+                                            ? "bg-gradient-to-b from-purple-400 to-pink-400" 
+                                            : "bg-gradient-to-b from-purple-600 to-pink-600"
+                                        } rounded-full`}></span>
                                         <span>Key Insights</span>
                                       </h5>
                                       <ul className="space-y-3">
@@ -1214,9 +1291,17 @@ const Index = () => {
                                           .filter(s => s.trim().length > 20)
                                           .slice(1, 8)
                                           .map((point, idx) => (
-                                            <li key={idx} className="flex items-start space-x-3 text-sm sm:text-base group">
-                                              <span className="text-purple-400 text-lg flex-shrink-0 group-hover:scale-125 transition-transform">•</span>
-                                              <span className="text-gray-300 leading-relaxed">{point.trim()}</span>
+                                            <li key={idx} className={`flex items-start space-x-3 text-sm sm:text-base group p-3 rounded-xl ${
+                                              appTheme === "dark" 
+                                                ? "hover:bg-purple-500/10" 
+                                                : "hover:bg-purple-50"
+                                            } transition-colors`}>
+                                              <span className={`${
+                                                appTheme === "dark" ? "text-purple-400" : "text-purple-600"
+                                              } text-lg flex-shrink-0 group-hover:scale-125 transition-transform font-bold`}>•</span>
+                                              <span className={`${
+                                                appTheme === "dark" ? "text-gray-300" : "text-gray-700"
+                                              } leading-relaxed`}>{point.trim()}</span>
                                             </li>
                                           ))
                                         }
@@ -1224,7 +1309,9 @@ const Index = () => {
                                     </div>
                                   </div>
                                 ) : (
-                                  <p className="text-gray-400 text-sm italic text-center py-4">
+                                  <p className={`${
+                                    appTheme === "dark" ? "text-gray-400" : "text-gray-600"
+                                  } text-sm italic text-center py-6`}>
                                     Generating summary...
                                   </p>
                                 )}
@@ -1278,8 +1365,86 @@ const Index = () => {
                       className={`absolute inset-0 bg-gradient-to-r ${theme.accent} opacity-0 group-hover:opacity-10 transition-opacity duration-300 rounded-3xl pointer-events-none`}
                     />
                   </div>
-                </div>
-              ))}
+                  
+                  {/* Custom Hover Overlay - Dynamic positioning based on column */}
+                  {hoveredCard === article.id && (
+                    <div className={`absolute top-1/2 -translate-y-1/2 left-0 ${
+                      isLastColumn 
+                        ? 'sm:right-auto sm:left-[calc(100%+0.75rem)] lg:left-[calc(100%+1rem)]' 
+                        : 'sm:left-auto sm:right-[calc(100%+0.75rem)] lg:right-[calc(100%+1rem)]'
+                    } w-full sm:w-[90%] h-auto z-[100] pointer-events-none`} style={{ perspective: '1000px' }}>
+                      <div className={`relative overflow-hidden rounded-xl sm:rounded-2xl backdrop-blur-[120px] bg-gradient-to-br from-gray-900/50 via-purple-950/50 to-gray-900/50 border-2 transition-all duration-700 shadow-2xl ${
+                        hoveredCard === article.id ? `border-white/50 ${categoryThemes[article.category].glow}` : "border-white/10"
+                      }`} style={{
+                        animation: 'flipIn 0.6s ease-out',
+                        transformStyle: 'preserve-3d'
+                      }}>
+                        {/* Subtle gradient overlay background */}
+                        <div className={`absolute inset-0 bg-gradient-to-br ${categoryThemes[article.category].gradient} opacity-15`} />
+                        
+                        {/* Content Layout - Matches image shape */}
+                        <div className="relative flex flex-col p-3 sm:p-4">
+                          {/* Top section - Image and Title side by side */}
+                          <div className="flex items-start space-x-2.5 sm:space-x-3 mb-2.5 sm:mb-3">
+                            {/* Square thumbnail image */}
+                            <div className="relative w-16 h-16 sm:w-20 sm:h-20 flex-shrink-0 rounded-lg sm:rounded-xl overflow-hidden shadow-lg ring-2 ring-white/30">
+                              <img
+                                src={article.image}
+                                alt={article.title}
+                                className="w-full h-full object-cover"
+                              />
+                              <div className="absolute inset-0 bg-gradient-to-br from-black/20 to-transparent" />
+                            </div>
+                            
+                            {/* Title and metadata */}
+                            <div className="flex-1 min-w-0">
+                              <h4 className="font-extrabold text-sm sm:text-base leading-snug text-white drop-shadow-[0_2px_10px_rgba(0,0,0,0.9)] line-clamp-2 mb-1">
+                                {article.title}
+                              </h4>
+                              <div className="flex items-center space-x-1.5 text-[10px] sm:text-xs font-semibold">
+                                <span className="text-gray-200 drop-shadow-lg">{article.source}</span>
+                                <span className="text-gray-400">•</span>
+                                <span className="text-gray-300 drop-shadow-lg">{article.time}</span>
+                              </div>
+                            </div>
+                          </div>
+                          
+                          {/* Excerpt */}
+                          <div className="mb-2.5 sm:mb-3">
+                            <p className="text-[11px] sm:text-xs text-gray-100 leading-relaxed line-clamp-2 drop-shadow-md">
+                              {article.excerpt}
+                            </p>
+                          </div>
+                          
+                          {/* Divider */}
+                          <div className="border-t border-white/30 mb-2.5 sm:mb-3" />
+                          
+                          {/* Bottom Metadata */}
+                          <div className="flex items-center justify-between">
+                            <div className="flex items-center space-x-2">
+                              <div className="flex items-center space-x-1">
+                                <Eye className="w-3 h-3 sm:w-3.5 sm:h-3.5 text-gray-200" />
+                                <span className="text-[10px] sm:text-xs font-bold text-white">{article.views}</span>
+                              </div>
+                              <div className="flex items-center space-x-1">
+                                <Clock className="w-3 h-3 sm:w-3.5 sm:h-3.5 text-gray-200" />
+                                <span className="text-[10px] sm:text-xs font-bold text-white">{article.readTime}</span>
+                              </div>
+                            </div>
+                            
+                            {/* Category badge */}
+                            <span className={`px-2.5 py-1 rounded-full text-[9px] sm:text-[10px] font-extrabold text-white bg-gradient-to-r ${categoryThemes[article.category].accent} shadow-lg backdrop-blur-sm`}>
+                              {article.category.toUpperCase()}
+                            </span>
+                          </div>
+                        </div>
+                      </div>
+                    </div>
+                  )}
+                  </div>
+                  </div>
+                );
+              })}
             </div>
             
             {/* Lazy Loading Trigger & Load More Button */}
@@ -1363,7 +1528,11 @@ const Index = () => {
       </main>
 
       {/* Footer */}
-      <footer className="relative z-10 backdrop-blur-2xl bg-black/50 border-t border-white/20 mt-12 sm:mt-16 lg:mt-20 shadow-2xl">
+      <footer className={`relative z-10 backdrop-blur-2xl ${
+        appTheme === "dark" ? "bg-black/50" : "bg-white/50"
+      } border-t ${
+        appTheme === "dark" ? "border-white/20" : "border-gray-200"
+      } mt-12 sm:mt-16 lg:mt-20 shadow-2xl`}>
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8 sm:py-10 lg:py-12">
           <div className="text-center">
             <div
