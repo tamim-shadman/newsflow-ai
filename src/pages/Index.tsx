@@ -320,6 +320,26 @@ const Index = () => {
     return uniqueByUrl;
   }, [featuredData, convertToNewsArticle]);
 
+  useEffect(() => {
+    setCurrentSlide(prev => {
+      if (featuredNews.length === 0) {
+        return 0;
+      }
+
+      const maxIndex = featuredNews.length - 1;
+
+      if (prev > maxIndex) {
+        return maxIndex;
+      }
+
+      if (prev < 0) {
+        return 0;
+      }
+
+      return prev;
+    });
+  }, [featuredNews.length]);
+
   // Use trending data when in trending category, otherwise use regular news data
   const currentNewsData = activeCategory === "trending" ? trendingData : newsData;
   
@@ -386,7 +406,7 @@ const Index = () => {
 
   // Auto-rotate featured carousel
   useEffect(() => {
-    if (featuredNews.length === 0) return;
+    if (featuredNews.length <= 1) return;
     const timer = setInterval(() => {
       setCurrentSlide((prev) => (prev + 1) % featuredNews.length);
     }, 5000);
