@@ -1008,43 +1008,43 @@ const Index = () => {
                             </button>
                           </PopoverTrigger>
                           <PopoverContent
-                            className="w-[90vw] sm:w-[500px] md:w-[600px] lg:w-[700px] max-h-[70vh] bg-gradient-to-br from-black via-purple-950/20 to-black backdrop-blur-xl border border-purple-500/30 text-white p-4 sm:p-5 md:p-6 z-50 shadow-2xl shadow-purple-500/20 overflow-hidden"
+                            className="w-[45vw] sm:w-[250px] md:w-[300px] lg:w-[350px] max-h-[60vh] bg-gradient-to-br from-black via-purple-950/20 to-black backdrop-blur-xl border border-purple-500/30 text-white p-3 sm:p-4 z-50 shadow-2xl shadow-purple-500/20 overflow-hidden"
                             onClick={(e) => e.stopPropagation()}
                             side="top"
                             align="end"
                           >
-                            <div className="space-y-3">
-                              <div className="flex items-center space-x-2 pb-3 border-b border-purple-500/20">
-                                <Sparkles className="w-4 h-4 sm:w-5 sm:h-5 text-purple-400" />
-                                <h4 className="font-bold text-base sm:text-lg bg-gradient-to-r from-purple-400 to-pink-400 bg-clip-text text-transparent">
+                            <div className="space-y-2">
+                              <div className="flex items-center space-x-2 pb-2 border-b border-purple-500/20">
+                                <Sparkles className="w-4 h-4 text-purple-400" />
+                                <h4 className="font-bold text-sm sm:text-base bg-gradient-to-r from-purple-400 to-pink-400 bg-clip-text text-transparent">
                                   Article Summary
                                 </h4>
                               </div>
-                              <div className="overflow-y-auto max-h-[55vh] pr-2 scrollbar-thin scrollbar-thumb-purple-500/50 scrollbar-track-transparent">
+                              <div className="overflow-y-auto max-h-[48vh] pr-2 scrollbar-thin scrollbar-thumb-purple-500/70 scrollbar-track-purple-500/10">
                                 {loadingSummary === article.url ? (
-                                  <div className="flex items-center justify-center py-6 sm:py-8">
-                                    <Loader2 className="w-5 h-5 sm:w-6 sm:h-6 md:w-8 md:h-8 text-purple-400 animate-spin" />
+                                  <div className="flex items-center justify-center py-4">
+                                    <Loader2 className="w-5 h-5 sm:w-6 sm:h-6 text-purple-400 animate-spin" />
                                   </div>
                                 ) : summaries.has(article.url) ? (
-                                  <div className="space-y-3 sm:space-y-4">
+                                  <div className="space-y-2">
                                     {/* Main Summary */}
-                                    <div className="bg-gradient-to-br from-purple-500/10 to-pink-500/10 rounded-lg p-3 sm:p-4 border border-purple-500/20">
-                                      <p className="text-gray-100 text-xs sm:text-sm md:text-base leading-relaxed">
+                                    <div className="bg-gradient-to-br from-purple-500/10 to-pink-500/10 rounded-lg p-2 sm:p-3 border border-purple-500/20">
+                                      <p className="text-gray-100 text-xs sm:text-sm leading-relaxed">
                                         {summaries.get(article.url)?.split('.')[0]}.
                                       </p>
                                     </div>
                                     
                                     {/* Key Points */}
-                                    <div className="space-y-2 sm:space-y-3">
-                                      <h5 className="text-xs sm:text-sm font-semibold text-purple-400 uppercase tracking-wide">Key Points</h5>
-                                      <ul className="space-y-2 sm:space-y-3">
+                                    <div className="space-y-1.5">
+                                      <h5 className="text-[10px] sm:text-xs font-semibold text-purple-400 uppercase tracking-wide">Key Points</h5>
+                                      <ul className="space-y-1.5">
                                         {summaries.get(article.url)
                                           ?.split(/[.!?]+/)
                                           .filter(s => s.trim().length > 20)
                                           .slice(1, 5)
                                           .map((point, idx) => (
-                                            <li key={idx} className="flex items-start space-x-2 sm:space-x-3 text-xs sm:text-sm md:text-base">
-                                              <span className="text-purple-400 mt-0.5 sm:mt-1 flex-shrink-0">•</span>
+                                            <li key={idx} className="flex items-start space-x-2 text-[11px] sm:text-xs">
+                                              <span className="text-purple-400 mt-0.5 flex-shrink-0">•</span>
                                               <span className="text-gray-300 leading-relaxed">{point.trim()}</span>
                                             </li>
                                           ))
@@ -1053,7 +1053,7 @@ const Index = () => {
                                     </div>
                                   </div>
                                 ) : (
-                                  <p className="text-gray-400 text-xs sm:text-sm md:text-base italic">
+                                  <p className="text-gray-400 text-xs sm:text-sm italic">
                                     Generating summary...
                                   </p>
                                 )}
