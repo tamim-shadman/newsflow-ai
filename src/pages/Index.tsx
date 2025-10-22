@@ -997,26 +997,27 @@ const Index = () => {
                                 e.stopPropagation();
                                 handleSummarize(article.url);
                               }}
-                              className="hidden sm:block p-2 rounded-full bg-black/70 backdrop-blur-xl hover:bg-gradient-to-r hover:from-purple-500 hover:to-pink-500 transition-all opacity-0 group-hover:opacity-100"
+                              className="p-2 rounded-full bg-black/70 backdrop-blur-xl hover:bg-gradient-to-r hover:from-purple-500 hover:to-pink-500 transition-all opacity-0 group-hover:opacity-100"
+                              title="AI Summary"
                             >
                               {loadingSummary === article.url ? (
-                                <Loader2 className="w-4 h-4 text-white animate-spin" />
+                                <Loader2 className="w-3 h-3 sm:w-4 sm:h-4 text-white animate-spin" />
                               ) : (
-                                <FileText className="w-4 h-4 text-white" />
+                                <FileText className="w-3 h-3 sm:w-4 sm:h-4 text-white" />
                               )}
                             </button>
                           </PopoverTrigger>
                           <PopoverContent
-                            className="w-72 sm:w-80 bg-black/95 backdrop-blur-xl border border-white/20 text-white p-3 sm:p-4 z-50"
+                            className="w-80 sm:w-96 bg-gradient-to-br from-black via-purple-950/20 to-black backdrop-blur-xl border border-purple-500/30 text-white p-4 sm:p-5 z-50 shadow-2xl shadow-purple-500/20"
                             onClick={(e) => e.stopPropagation()}
                             side="top"
                             align="end"
                           >
-                            <div className="space-y-2">
-                              <div className="flex items-center space-x-2 mb-2 sm:mb-3">
-                                <FileText className="w-4 h-4 sm:w-5 sm:h-5 text-purple-400" />
-                                <h4 className="font-bold text-base sm:text-lg bg-gradient-to-r from-purple-400 to-pink-400 bg-clip-text text-transparent">
-                                  AI Summary
+                            <div className="space-y-3">
+                              <div className="flex items-center space-x-2 pb-3 border-b border-purple-500/20">
+                                <Sparkles className="w-5 h-5 text-purple-400" />
+                                <h4 className="font-bold text-lg bg-gradient-to-r from-purple-400 to-pink-400 bg-clip-text text-transparent">
+                                  Article Summary
                                 </h4>
                               </div>
                               {loadingSummary === article.url ? (
@@ -1024,9 +1025,32 @@ const Index = () => {
                                   <Loader2 className="w-6 h-6 sm:w-8 sm:h-8 text-purple-400 animate-spin" />
                                 </div>
                               ) : summaries.has(article.url) ? (
-                                <p className="text-gray-300 text-xs sm:text-sm leading-relaxed">
-                                  {summaries.get(article.url)}
-                                </p>
+                                <div className="space-y-3">
+                                  {/* Main Summary */}
+                                  <div className="bg-gradient-to-br from-purple-500/10 to-pink-500/10 rounded-lg p-3 border border-purple-500/20">
+                                    <p className="text-gray-100 text-xs sm:text-sm leading-relaxed">
+                                      {summaries.get(article.url)?.split('.')[0]}.
+                                    </p>
+                                  </div>
+                                  
+                                  {/* Key Points */}
+                                  <div className="space-y-2">
+                                    <h5 className="text-xs font-semibold text-purple-400 uppercase tracking-wide">Key Points</h5>
+                                    <ul className="space-y-2">
+                                      {summaries.get(article.url)
+                                        ?.split(/[.!?]+/)
+                                        .filter(s => s.trim().length > 20)
+                                        .slice(1, 5)
+                                        .map((point, idx) => (
+                                          <li key={idx} className="flex items-start space-x-2 text-xs sm:text-sm">
+                                            <span className="text-purple-400 mt-0.5 flex-shrink-0">•</span>
+                                            <span className="text-gray-300 leading-relaxed">{point.trim()}</span>
+                                          </li>
+                                        ))
+                                      }
+                                    </ul>
+                                  </div>
+                                </div>
                               ) : (
                                 <p className="text-gray-400 text-xs sm:text-sm italic">
                                   Generating summary...

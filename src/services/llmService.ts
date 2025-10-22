@@ -1,13 +1,23 @@
+import Bytez from "bytez.js";
 import axios from "axios";
 import type { NewsAPIArticle, EnhancedArticle } from "@/types/news";
 
-// Use serverless function instead of direct API call (secure for production)
+// Initialize Bytez SDK with your unlimited API key from environment
+const BYTEZ_API_KEY = import.meta.env.VITE_BYTEZ_API_KEY || "35bd52b6cfe7361a4be07c52686dac28";
+const sdk = new Bytez(BYTEZ_API_KEY);
+
+// Use BART-large-CNN - specialized for news summarization (PRIMARY)
+const bartModel = sdk.model("facebook/bart-large-cnn");
+
+// Groq as FALLBACK when BART fails
 const IS_PRODUCTION = import.meta.env.PROD;
 const GROQ_API_URL = IS_PRODUCTION ? "/api/chat" : "https://api.groq.com/openai/v1/chat/completions";
 const GROQ_API_KEY = import.meta.env.GROQ_API_KEY;
+const GROQ_MODEL = "llama-3.3-70b-versatile";
 
-// Using Groq's free tier with llama-3.3-70b-versatile model (fast and free)
-const MODEL = "llama-3.3-70b-versatile";
+// Gemini as SECOND FALLBACK when BART fails
+const GEMINI_API_KEY = import.meta.env.GEMINI_API_KEY;
+const GEMINI_MODEL = "gemini-1.5-flash";
 
 interface GroqMessage {
   role: "system" | "user" | "assistant";
@@ -22,76 +32,181 @@ interface GroqResponse {
   }>;
 }
 
+interface GeminiMessage {
+  role: "user" | "model";
+  parts: Array<{ text: string }>;
+}
+
+interface GeminiResponse {
+  candidates: Array<{
+    content: {
+      parts: Array<{ text: string }>;
+    };
+  }>;
+}
+
 /**
- * Enhance a news article using LLM to make it more engaging and beautiful
- * Now generates comprehensive summaries of the full article content
+ * SECOND FALLBACK: Enhance article using Gemini (1.5 Flash) when BART fails
+ */
+async function enhanceWithGemini(
+  article: NewsAPIArticle,
+  contentToSummarize: string
+): Promise<EnhancedArticle> {
+  console.log(`🔄 [FALLBACK 1] Summarizing with Gemini: ${article.title.substring(0, 50)}...`);
+
+  try {
+    const geminiMessages: GeminiMessage[] = [
+      {
+        role: "user",
+        parts: [{
+          text: `You are an expert news editor. Create a comprehensive summary of this news article.
+
+${contentToSummarize}
+
+Provide your response as JSON:
+{
+  "summary": "Complete, detailed summary with 6-8 sentences covering ALL key information, facts, quotes, and implications.",
+  "keyPoints": ["5-7 specific key takeaways with concrete details"]
+}`
+        }]
+      }
+    ];
+
+    const response = await axios.post<GeminiResponse>(
+      `https://generativelanguage.googleapis.com/v1beta/models/${GEMINI_MODEL}:generateContent?key=${GEMINI_API_KEY}`,
+      {
+        contents: geminiMessages,
+        generationConfig: {
+          temperature: 0.5,
+          maxOutputTokens: 800,
+        }
+      }
+    );
+
+    if (!response.data.candidates?.[0]?.content?.parts?.[0]?.text) {
+      throw new Error("Invalid Gemini response structure");
+    }
+
+    const content = response.data.candidates[0].content.parts[0].text;
+
+    // Extract JSON from response
+    let jsonContent = content;
+    const jsonMatch = content.match(/```json\s*([\s\S]*?)\s*```/) || content.match(/```\s*([\s\S]*?)\s*```/);
+    if (jsonMatch) {
+      jsonContent = jsonMatch[1];
+    }
+
+    const enhanced = JSON.parse(jsonContent.trim());
+
+    console.log(`✅ Gemini summary generated: ${enhanced.summary.substring(0, 60)}...`);
+
+    return {
+      originalTitle: article.title,
+      enhancedTitle: article.title,
+      originalExcerpt: article.description || "",
+      enhancedExcerpt: article.description || enhanced.summary?.substring(0, 150) || "",
+      summary: enhanced.summary || article.content || article.description || "Summary unavailable.",
+      keyPoints: enhanced.keyPoints || [],
+    };
+  } catch (geminiError) {
+    console.warn("⚠️ Gemini failed, falling back to Groq...", geminiError);
+    // THIRD FALLBACK: Try Groq if Gemini also fails
+    return await enhanceWithGroq(article, contentToSummarize);
+  }
+}
+
+/**
+ * THIRD FALLBACK: Enhance article using Groq (LLaMA 3.3 70B) when BART and Gemini fail
+ */
+async function enhanceWithGroq(
+  article: NewsAPIArticle,
+  contentToSummarize: string
+): Promise<EnhancedArticle> {
+  console.log(`🔄 [FALLBACK 2] Summarizing with Groq/LLaMA: ${article.title.substring(0, 50)}...`);
+
+  const messages: GroqMessage[] = [
+    {
+      role: "system",
+      content: "You are an expert news editor who creates comprehensive, accurate summaries. Always respond with valid JSON only.",
+    },
+    {
+      role: "user",
+      content: `Create a comprehensive summary of this news article.
+
+${contentToSummarize}
+
+Provide JSON response:
+{
+  "summary": "Complete, detailed summary with 6-8 sentences covering ALL key information, facts, quotes, and implications.",
+  "keyPoints": ["5-7 specific key takeaways with concrete details"]
+}`,
+    },
+  ];
+
+  const response = await axios.post<GroqResponse>(
+    GROQ_API_URL,
+    {
+      model: GROQ_MODEL,
+      messages,
+      temperature: 0.5,
+      max_tokens: 800,
+    },
+    IS_PRODUCTION
+      ? {}
+      : {
+          headers: {
+            Authorization: `Bearer ${GROQ_API_KEY}`,
+            "Content-Type": "application/json",
+          },
+        }
+  );
+
+  const content = response.data.choices[0].message.content;
+
+  // Extract JSON from response
+  let jsonContent = content;
+  const jsonMatch = content.match(/```json\s*([\s\S]*?)\s*```/) || content.match(/```\s*([\s\S]*?)\s*```/);
+  if (jsonMatch) {
+    jsonContent = jsonMatch[1];
+  }
+
+  const enhanced = JSON.parse(jsonContent.trim());
+
+  console.log(`✅ Groq summary generated: ${enhanced.summary.substring(0, 60)}...`);
+
+  return {
+    originalTitle: article.title,
+    enhancedTitle: article.title,
+    originalExcerpt: article.description || "",
+    enhancedExcerpt: article.description || enhanced.summary?.substring(0, 150) || "",
+    summary: enhanced.summary || article.content || article.description || "Summary unavailable.",
+    keyPoints: enhanced.keyPoints || [],
+  };
+}
+
+/**
+ * Enhance a news article using BART-large-CNN for professional summarization
+ * BART is specifically trained for news summarization - much better than general LLMs
  * @param article - Original news article from NewsAPI
- * @returns Enhanced article with improved title, excerpt, and comprehensive summary
+ * @returns Enhanced article with AI-generated summary
  */
 export async function enhanceArticleWithLLM(
   article: NewsAPIArticle
 ): Promise<EnhancedArticle> {
   try {
-    // Build comprehensive prompt with all available content
-    const contentToSummarize = `
-Title: ${article.title}
-Description: ${article.description || "No description"}
-Full Content: ${article.content || article.description || "Limited content available"}
-Source: ${article.source.name}
-Author: ${article.author || "Unknown"}
-`.trim();
+    // Build comprehensive content for summarization
+    const contentToSummarize = [
+      article.title,
+      article.description || "",
+      article.content || "",
+    ]
+      .filter(Boolean)
+      .join(". ")
+      .trim();
 
-    const prompt = `You are a professional news editor. Create a comprehensive, concise summary of this entire news article.
-
-${contentToSummarize}
-
-Provide a JSON response with:
-{
-  "enhancedTitle": "Compelling, clear title (max 80 chars)",
-  "enhancedExcerpt": "Hook sentence that captures the essence (max 150 chars)",
-  "summary": "Complete, detailed summary covering ALL key information, facts, quotes, and implications from the article. Write 4-6 sentences that capture the full story in a clear, professional manner.",
-  "keyPoints": ["5-7 specific key takeaways from the article with concrete details"]
-}
-
-Important: The summary should be comprehensive and cover the entire article, not just the headline.`;
-
-    const messages: GroqMessage[] = [
-      {
-        role: "system",
-        content: "You are an expert news editor who creates comprehensive, accurate summaries. Always respond with valid JSON only. Ensure summaries capture ALL important details from the source material.",
-      },
-      {
-        role: "user",
-        content: prompt,
-      },
-    ];
-
-    const response = await axios.post<GroqResponse>(
-      GROQ_API_URL,
-      {
-        model: MODEL,
-        messages,
-        temperature: 0.5, // Lower temperature for more factual summaries
-        max_tokens: 800, // Increased for comprehensive summaries
-      },
-      IS_PRODUCTION
-        ? {}
-        : {
-            headers: {
-              Authorization: `Bearer ${GROQ_API_KEY}`,
-              "Content-Type": "application/json",
-            },
-          }
-    );
-
-    const content = response.data.choices[0].message.content;
-    
-    // Try to parse JSON, handle if it fails
-    let enhanced;
-    try {
-      enhanced = JSON.parse(content);
-    } catch (parseError) {
-      console.warn('Failed to parse LLM response as JSON, using original content');
+    // If no content available, return original
+    if (!contentToSummarize || contentToSummarize.length < 50) {
+      console.warn("Article too short to summarize:", article.title);
       return {
         originalTitle: article.title,
         enhancedTitle: article.title,
@@ -102,63 +217,123 @@ Important: The summary should be comprehensive and cover the entire article, not
       };
     }
 
+    console.log(`🤖 [PRIMARY] Summarizing with BART: ${article.title.substring(0, 50)}...`);
+
+    // Try BART first (PRIMARY MODEL - unlimited API)
+    const prompt = `Provide a comprehensive, detailed summary of this news article. Include all key facts, quotes, context, and implications. Write 6-8 complete, well-structured sentences that fully capture the entire story. Use proper paragraph formatting:\n\n${contentToSummarize}`;
+    
+    const { error, output } = await bartModel.run(prompt);
+
+    if (error) {
+      console.warn("⚠️ BART failed, falling back to Gemini...", error);
+      // FALLBACK: Try Gemini if BART fails
+      return await enhanceWithGemini(article, contentToSummarize);
+    }
+
+    // BART returns a clean summary string - format it nicely
+    let summary = output || article.content || article.description || "Summary unavailable.";
+    
+    // Clean up and format the summary
+    summary = summary
+      .trim()
+      .replace(/\s+/g, ' ') // Normalize whitespace
+      .replace(/\.(?=[A-Z])/g, '. ') // Add space after periods
+      .replace(/([.!?])\s*([A-Z])/g, '$1 $2'); // Ensure proper spacing between sentences
+
+    console.log(`✅ BART summary generated (${summary.length} chars, ${summary.split(/[.!?]+/).length - 1} sentences): ${summary.substring(0, 60)}...`);
+
+    // Extract key points from the summary (simple sentence splitting)
+    const keyPoints = summary
+      .split(/[.!?]+/)
+      .filter(sentence => sentence.trim().length > 20)
+      .slice(0, 5)
+      .map(s => s.trim());
+
     return {
       originalTitle: article.title,
-      enhancedTitle: enhanced.enhancedTitle || article.title,
+      enhancedTitle: article.title, // Keep original title
       originalExcerpt: article.description || "",
-      enhancedExcerpt: enhanced.enhancedExcerpt || article.description || "",
-      summary: enhanced.summary || article.content || article.description || "Summary unavailable.",
-      keyPoints: enhanced.keyPoints || [],
+      enhancedExcerpt: article.description || summary.substring(0, 150), // Use summary as excerpt
+      summary: summary,
+      keyPoints: keyPoints,
     };
   } catch (error) {
-    console.error("Error enhancing article with LLM:", error);
+    console.error("❌ BART error, trying Gemini fallback:", error);
 
-    // Return original content if LLM fails
-    return {
-      originalTitle: article.title,
-      enhancedTitle: article.title,
-      originalExcerpt: article.description || "",
-      enhancedExcerpt: article.description || "",
-      summary: article.content || article.description || "Summary unavailable.",
-      keyPoints: [],
-    };
+    // Build content for fallback
+    const contentToSummarize = [
+      article.title,
+      article.description || "",
+      article.content || "",
+    ]
+      .filter(Boolean)
+      .join(". ")
+      .trim();
+
+    // FALLBACK: Try Gemini if BART throws exception
+    try {
+      return await enhanceWithGemini(article, contentToSummarize);
+    } catch (fallbackError) {
+      console.error("❌ All AI models failed, returning original content:", fallbackError);
+      
+      // Final fallback: Return original content
+      return {
+        originalTitle: article.title,
+        enhancedTitle: article.title,
+        originalExcerpt: article.description || "",
+        enhancedExcerpt: article.description || "",
+        summary: article.content || article.description || "Summary unavailable.",
+        keyPoints: [],
+      };
+    }
   }
 }
 
 /**
  * Enhance multiple articles in batch
+ * With unlimited API, we can process more articles!
  * @param articles - Array of news articles
- * @param limit - Maximum number to enhance (to avoid rate limits)
+ * @param limit - Maximum number to enhance
  * @returns Array of enhanced articles
  */
 export async function enhanceArticlesBatch(
   articles: NewsAPIArticle[],
-  limit: number = 3 // Reduced from 5 to 3
+  limit: number = 5 // Increased from 3 since API is unlimited
 ): Promise<Map<string, EnhancedArticle>> {
   const enhancedMap = new Map<string, EnhancedArticle>();
 
-  // Enhance only the first few articles to avoid rate limits
+  // Enhance articles
   const articlesToEnhance = articles.slice(0, limit);
 
-  // Process sequentially to avoid rate limiting
-  for (const article of articlesToEnhance) {
+  console.log(`🚀 BART batch processing: ${articlesToEnhance.length} articles`);
+
+  // Process in parallel since we have unlimited API access
+  const promises = articlesToEnhance.map(async (article) => {
     try {
       const enhanced = await enhanceArticleWithLLM(article);
-      enhancedMap.set(article.url, enhanced);
-
-      // Longer delay to avoid rate limiting (1 second instead of 500ms)
-      await new Promise((resolve) => setTimeout(resolve, 1000));
+      return { url: article.url, enhanced };
     } catch (error) {
       console.error(`Failed to enhance article: ${article.title}`, error);
-      // Continue with next article instead of stopping
+      return null;
     }
-  }
+  });
+
+  const results = await Promise.all(promises);
+
+  // Add successful enhancements to map
+  results.forEach((result) => {
+    if (result) {
+      enhancedMap.set(result.url, result.enhanced);
+    }
+  });
+
+  console.log(`✅ BART enhanced ${enhancedMap.size}/${articlesToEnhance.length} articles`);
 
   return enhancedMap;
 }
 
 /**
- * Generate a beautiful summary of multiple articles for a news digest
+ * Generate a digest summary of multiple article titles
  * @param articles - Array of news articles
  * @param category - Category of news
  * @returns Formatted digest summary
@@ -168,46 +343,24 @@ export async function generateNewsDigest(
   category: string
 ): Promise<string> {
   try {
-    const articleTitles = articles
-      .slice(0, 5) // Reduced from 10 to 5
-      .map((a, i) => `${i + 1}. ${a.title}`)
-      .join("\n");
+    // Combine top article titles for digest
+    const combinedText = articles
+      .slice(0, 10)
+      .map((a) => a.title)
+      .join(". ");
 
-    // Simplified prompt
-    const prompt = `Summarize these ${category} headlines in 2-3 sentences (max 200 words):
+    console.log(`📰 Generating ${category} digest with BART...`);
 
-${articleTitles}`;
-
-    const messages: GroqMessage[] = [
-      {
-        role: "system",
-        content: "You are a news anchor. Be concise.",
-      },
-      {
-        role: "user",
-        content: prompt,
-      },
-    ];
-
-    const response = await axios.post<GroqResponse>(
-      GROQ_API_URL,
-      {
-        model: MODEL,
-        messages,
-        temperature: 0.7,
-        max_tokens: 300, // Reduced from 500
-      },
-      IS_PRODUCTION
-        ? {}
-        : {
-            headers: {
-              Authorization: `Bearer ${GROQ_API_KEY}`,
-              "Content-Type": "application/json",
-            },
-          }
+    const { error, output } = await bartModel.run(
+      `Provide a comprehensive overview of these ${category} news headlines. Write 4-5 detailed sentences covering the major themes and stories: ${combinedText}`
     );
 
-    return response.data.choices[0].message.content;
+    if (error) {
+      throw new Error(error);
+    }
+
+    console.log(`✅ Digest generated for ${category}`);
+    return output || `Latest updates in ${category} news.`;
   } catch (error) {
     console.error("Error generating news digest:", error);
     return `Explore the latest ${category} news covering a wide range of topics and breaking stories from around the world.`;

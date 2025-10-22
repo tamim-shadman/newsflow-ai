@@ -14,17 +14,39 @@
     <!-- PWA Manifest -->
     <link rel="manifest" href="/manifest.json" />
     
-    <!-- Theme color for Android -->
+    <!-- Theme color for Android and modern browsers -->
     <meta name="theme-color" content="#000000" />
+    <meta name="theme-color" media="(prefers-color-scheme: dark)" content="#000000" />
+    <meta name="theme-color" media="(prefers-color-scheme: light)" content="#ffffff" />
     
     <!-- Android Chrome -->
     <meta name="mobile-web-app-capable" content="yes" />
+    <meta name="mobile-web-app-title" content="NewsFlow AI" />
     
-    <!-- iOS Safari (minimal support, Android focused) -->
+    <!-- iOS Safari PWA Support -->
     <meta name="apple-mobile-web-app-capable" content="yes" />
     <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
-    <meta name="apple-mobile-web-app-title" content="NewsFlow" />
-    <link rel="apple-touch-icon" href="/icon-192.png" />
+    <meta name="apple-mobile-web-app-title" content="NewsFlow AI" />
+    
+    <!-- iOS App Icons (using SVG as fallback) -->
+    <link rel="apple-touch-icon" sizes="180x180" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 180 180'><rect width='180' height='180' fill='%23000'/><text x='90' y='135' font-size='120' text-anchor='middle' fill='white'>📰</text></svg>" />
+    <link rel="apple-touch-icon" sizes="152x152" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 152 152'><rect width='152' height='152' fill='%23000'/><text x='76' y='114' font-size='100' text-anchor='middle' fill='white'>📰</text></svg>" />
+    <link rel="apple-touch-icon" sizes="144x144" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 144 144'><rect width='144' height='144' fill='%23000'/><text x='72' y='108' font-size='95' text-anchor='middle' fill='white'>📰</text></svg>" />
+    <link rel="apple-touch-icon" sizes="120x120" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 120 120'><rect width='120' height='120' fill='%23000'/><text x='60' y='90' font-size='80' text-anchor='middle' fill='white'>📰</text></svg>" />
+    <link rel="apple-touch-icon" sizes="114x114" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 114 114'><rect width='114' height='114' fill='%23000'/><text x='57' y='85' font-size='75' text-anchor='middle' fill='white'>📰</text></svg>" />
+    <link rel="apple-touch-icon" sizes="76x76" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 76 76'><rect width='76' height='76' fill='%23000'/><text x='38' y='57' font-size='50' text-anchor='middle' fill='white'>📰</text></svg>" />
+    <link rel="apple-touch-icon" sizes="72x72" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 72 72'><rect width='72' height='72' fill='%23000'/><text x='36' y='54' font-size='48' text-anchor='middle' fill='white'>📰</text></svg>" />
+    <link rel="apple-touch-icon" sizes="60x60" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 60 60'><rect width='60' height='60' fill='%23000'/><text x='30' y='45' font-size='40' text-anchor='middle' fill='white'>📰</text></svg>" />
+    <link rel="apple-touch-icon" sizes="57x57" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 57 57'><rect width='57' height='57' fill='%23000'/><text x='28.5' y='42' font-size='38' text-anchor='middle' fill='white'>📰</text></svg>" />
+    
+    <!-- iOS Splash Screens (optional but recommended) -->
+    <link rel="apple-touch-startup-image" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 1242 2688'><rect width='1242' height='2688' fill='%23000'/><text x='621' y='1400' font-size='200' text-anchor='middle' fill='white'>📰 NewsFlow AI</text></svg>" media="(device-width: 414px) and (device-height: 896px) and (-webkit-device-pixel-ratio: 3)" />
+    <link rel="apple-touch-startup-image" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 1125 2436'><rect width='1125' height='2436' fill='%23000'/><text x='562' y='1250' font-size='180' text-anchor='middle' fill='white'>📰 NewsFlow AI</text></svg>" media="(device-width: 375px) and (device-height: 812px) and (-webkit-device-pixel-ratio: 3)" />
+    
+    <!-- Windows/Microsoft -->
+    <meta name="msapplication-TileColor" content="#000000" />
+    <meta name="msapplication-tap-highlight" content="no" />
+    <meta name="msapplication-TileImage" content="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 144 144'><rect width='144' height='144' fill='%23000'/><text x='72' y='108' font-size='95' text-anchor='middle' fill='white'>📰</text></svg>" />
 
     <link rel="preconnect" href="https://fonts.googleapis.com" />
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
@@ -67,6 +89,7 @@
     
     <!-- PWA Service Worker Registration -->
     <script>
+      // Service Worker Registration
       if ('serviceWorker' in navigator) {
         window.addEventListener('load', () => {
           navigator.serviceWorker.register('/sw.js')
@@ -78,6 +101,60 @@
             });
         });
       }
+
+      // iOS PWA Installation Prompt
+      window.addEventListener('load', () => {
+        // Detect iOS
+        const isIOS = /iPad|iPhone|iPod/.test(navigator.userAgent) && !window.MSStream;
+        const isInStandaloneMode = ('standalone' in window.navigator) && window.navigator.standalone;
+        
+        // Check if running as installed PWA
+        const isStandalone = window.matchMedia('(display-mode: standalone)').matches || isInStandaloneMode;
+        
+        if (isIOS && !isStandalone) {
+          // Show iOS installation instructions after 5 seconds
+          setTimeout(() => {
+            console.log('📱 iOS detected - PWA can be installed!');
+            console.log('To install: Tap Share button → Add to Home Screen');
+            
+            // Optional: Show a custom banner or toast
+            // You can implement a custom UI prompt here
+          }, 5000);
+        }
+        
+        // For Android/Desktop - use beforeinstallprompt
+        let deferredPrompt;
+        window.addEventListener('beforeinstallprompt', (e) => {
+          // Prevent the mini-infobar from appearing on mobile
+          e.preventDefault();
+          deferredPrompt = e;
+          
+          console.log('📱 PWA installable - you can add an install button');
+          // Optional: Show your custom install button here
+          
+          // Example: Auto-prompt after 10 seconds (uncomment if desired)
+          // setTimeout(() => {
+          //   if (deferredPrompt) {
+          //     deferredPrompt.prompt();
+          //     deferredPrompt.userChoice.then((choiceResult) => {
+          //       console.log(choiceResult.outcome === 'accepted' ? '✅ PWA installed' : '❌ PWA install dismissed');
+          //       deferredPrompt = null;
+          //     });
+          //   }
+          // }, 10000);
+        });
+        
+        // Detect successful installation
+        window.addEventListener('appinstalled', () => {
+          console.log('🎉 PWA installed successfully!');
+          deferredPrompt = null;
+        });
+        
+        // Log if already running as PWA
+        if (isStandalone) {
+          console.log('✅ Running as installed PWA!');
+        }
+      });
     </script>
   </body>
 </html>
