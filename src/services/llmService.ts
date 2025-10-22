@@ -1,5 +1,6 @@
 import Bytez from "bytez.js";
 import axios from "axios";
+import { GoogleGenAI } from "@google/genai";
 import type { NewsAPIArticle, EnhancedArticle } from "@/types/news";
 
 // Initialize Bytez SDK with your unlimited API key from environment
@@ -15,9 +16,15 @@ const GROQ_API_URL = IS_PRODUCTION ? "/api/chat" : "https://api.groq.com/openai/
 const GROQ_API_KEY = import.meta.env.GROQ_API_KEY;
 const GROQ_MODEL = "llama-3.3-70b-versatile";
 
-// Gemini as SECOND FALLBACK when BART fails
+// NVIDIA as SECOND FALLBACK when Groq fails
+const NVIDIA_API_KEY = import.meta.env.NVIDIA_API_KEY;
+const NVIDIA_API_URL = "https://integrate.api.nvidia.com/v1";
+const NVIDIA_MODEL = "speakleash/bielik-11b-v2.6-instruct";
+
+// Gemini as THIRD FALLBACK when NVIDIA fails (using official Google GenAI SDK)
 const GEMINI_API_KEY = import.meta.env.GEMINI_API_KEY;
-const GEMINI_MODEL = "gemini-1.5-flash";
+const GEMINI_MODEL = "gemini-2.0-flash-exp";
+const geminiClient = new GoogleGenAI({ apiKey: GEMINI_API_KEY });
 
 interface GroqMessage {
   role: "system" | "user" | "assistant";
@@ -32,34 +39,20 @@ interface GroqResponse {
   }>;
 }
 
-interface GeminiMessage {
-  role: "user" | "model";
-  parts: Array<{ text: string }>;
-}
-
-interface GeminiResponse {
-  candidates: Array<{
-    content: {
-      parts: Array<{ text: string }>;
-    };
-  }>;
-}
-
 /**
- * SECOND FALLBACK: Enhance article using Gemini (1.5 Flash) when BART fails
+ * SECOND FALLBACK: Enhance article using NVIDIA (Bielik 11B) when Groq fails
  */
-async function enhanceWithGemini(
+async function enhanceWithNVIDIA(
   article: NewsAPIArticle,
   contentToSummarize: string
 ): Promise<EnhancedArticle> {
-  console.log(`🔄 [FALLBACK 1] Summarizing with Gemini: ${article.title.substring(0, 50)}...`);
+  console.log(`🔄 [FALLBACK 2] Summarizing with NVIDIA: ${article.title.substring(0, 50)}...`);
 
   try {
-    const geminiMessages: GeminiMessage[] = [
+    const messages = [
       {
         role: "user",
-        parts: [{
-          text: `You are an expert news editor. Create a comprehensive summary of this news article.
+        content: `You are an expert news editor. Create a comprehensive summary of this news article.
 
 ${contentToSummarize}
 
@@ -68,26 +61,92 @@ Provide your response as JSON:
   "summary": "Complete, detailed summary with 6-8 sentences covering ALL key information, facts, quotes, and implications.",
   "keyPoints": ["5-7 specific key takeaways with concrete details"]
 }`
-        }]
       }
     ];
 
-    const response = await axios.post<GeminiResponse>(
-      `https://generativelanguage.googleapis.com/v1beta/models/${GEMINI_MODEL}:generateContent?key=${GEMINI_API_KEY}`,
+    const response = await axios.post(
+      `${NVIDIA_API_URL}/chat/completions`,
       {
-        contents: geminiMessages,
-        generationConfig: {
-          temperature: 0.5,
-          maxOutputTokens: 800,
+        model: NVIDIA_MODEL,
+        messages,
+        temperature: 0.2,
+        top_p: 0.7,
+        max_tokens: 1024,
+        stream: false
+      },
+      {
+        headers: {
+          'Authorization': `Bearer ${NVIDIA_API_KEY}`,
+          'Content-Type': 'application/json'
         }
       }
     );
 
-    if (!response.data.candidates?.[0]?.content?.parts?.[0]?.text) {
+    if (!response.data.choices?.[0]?.message?.content) {
+      throw new Error("Invalid NVIDIA response structure");
+    }
+
+    const content = response.data.choices[0].message.content;
+
+    // Extract JSON from response
+    let jsonContent = content;
+    const jsonMatch = content.match(/```json\s*([\s\S]*?)\s*```/) || content.match(/```\s*([\s\S]*?)\s*```/);
+    if (jsonMatch) {
+      jsonContent = jsonMatch[1];
+    }
+
+    const enhanced = JSON.parse(jsonContent.trim());
+
+    console.log(`✅ NVIDIA summary generated: ${enhanced.summary.substring(0, 60)}...`);
+
+    return {
+      originalTitle: article.title,
+      enhancedTitle: article.title,
+      originalExcerpt: article.description || "",
+      enhancedExcerpt: article.description || enhanced.summary?.substring(0, 150) || "",
+      summary: enhanced.summary || article.content || article.description || "Summary unavailable.",
+      keyPoints: enhanced.keyPoints || [],
+    };
+  } catch (nvidiaError) {
+    console.warn("⚠️ NVIDIA failed, falling back to Gemini...", nvidiaError);
+    // THIRD FALLBACK: Try Gemini if NVIDIA also fails
+    return await enhanceWithGemini(article, contentToSummarize);
+  }
+}
+
+/**
+ * THIRD FALLBACK: Enhance article using Gemini (1.5 Flash) when BART and NVIDIA fail
+ */
+async function enhanceWithGemini(
+  article: NewsAPIArticle,
+  contentToSummarize: string
+): Promise<EnhancedArticle> {
+  console.log(`🔄 [FALLBACK 3] Summarizing with Gemini: ${article.title.substring(0, 50)}...`);
+
+  try {
+    // Use the new Google GenAI SDK
+    const response = await geminiClient.models.generateContent({
+      model: GEMINI_MODEL,
+      contents: `You are an expert news editor. Create a comprehensive summary of this news article.
+
+${contentToSummarize}
+
+Provide your response as JSON:
+{
+  "summary": "Complete, detailed summary with 6-8 sentences covering ALL key information, facts, quotes, and implications.",
+  "keyPoints": ["5-7 specific key takeaways with concrete details"]
+}`,
+      config: {
+        temperature: 0.5,
+        maxOutputTokens: 800,
+      }
+    });
+
+    if (!response.text) {
       throw new Error("Invalid Gemini response structure");
     }
 
-    const content = response.data.candidates[0].content.parts[0].text;
+    const content = response.text;
 
     // Extract JSON from response
     let jsonContent = content;
@@ -110,19 +169,19 @@ Provide your response as JSON:
     };
   } catch (geminiError) {
     console.warn("⚠️ Gemini failed, falling back to Groq...", geminiError);
-    // THIRD FALLBACK: Try Groq if Gemini also fails
+    // FOURTH FALLBACK: Try Groq if Gemini also fails
     return await enhanceWithGroq(article, contentToSummarize);
   }
 }
 
 /**
- * THIRD FALLBACK: Enhance article using Groq (LLaMA 3.3 70B) when BART and Gemini fail
+ * FOURTH FALLBACK: Enhance article using Groq (LLaMA 3.3 70B) when all else fails
  */
 async function enhanceWithGroq(
   article: NewsAPIArticle,
   contentToSummarize: string
 ): Promise<EnhancedArticle> {
-  console.log(`🔄 [FALLBACK 2] Summarizing with Groq/LLaMA: ${article.title.substring(0, 50)}...`);
+  console.log(`🔄 [FALLBACK 4] Summarizing with Groq/LLaMA: ${article.title.substring(0, 50)}...`);
 
   const messages: GroqMessage[] = [
     {
@@ -225,9 +284,15 @@ export async function enhanceArticleWithLLM(
     const { error, output } = await bartModel.run(prompt);
 
     if (error) {
-      console.warn("⚠️ BART failed, falling back to Gemini...", error);
-      // FALLBACK: Try Gemini if BART fails
-      return await enhanceWithGemini(article, contentToSummarize);
+      console.warn("⚠️ BART failed, falling back to Groq...", error);
+      // FALLBACK 1: Try Groq if BART fails
+      try {
+        return await enhanceWithGroq(article, contentToSummarize);
+      } catch (groqError) {
+        console.warn("⚠️ Groq also failed, trying NVIDIA...", groqError);
+        // FALLBACK 2: Try NVIDIA if Groq fails
+        return await enhanceWithNVIDIA(article, contentToSummarize);
+      }
     }
 
     // BART returns a clean summary string - format it nicely

@@ -51,7 +51,6 @@ export type CategoryType =
   | "technology"
   | "health"
   | "sports"
-  | "scores"  // Live football & cricket scores
   | "entertainment"
   | "world";
 

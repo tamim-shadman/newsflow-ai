@@ -524,9 +524,6 @@ function getCategoryAPIsPriority(category: CategoryType): string[] {
     // SPORTS: Guardian → ESPN → SportsDB → Currents → NewsData
     sports: ['guardian', 'espn', 'sportsdb', 'currents', 'newsdata'],
     
-    // LIVE SCORES: Handled separately in liveScores.ts service
-    scores: [],
-    
     // BUSINESS: Guardian → Alpha Vantage → Marketaux → Currents → GNews → NewsData
     business: ['guardian', 'alphavantage', 'marketaux', 'currents', 'gnews', 'newsdata'],
     
@@ -1679,19 +1676,6 @@ function getFallbackNews(category: CategoryType, pageSize: number = 20): NewsAPI
         urlToImage: "https://images.unsplash.com/photo-1551292831-023188e78222?w=800&h=600&fit=crop",
         publishedAt: new Date(Date.now() - 8 * 60 * 60 * 1000).toISOString(),
         content: "Global online event generated record-breaking engagement across all major social media platforms simultaneously.",
-      },
-    ],
-    scores: [
-      // Live scores are handled by liveScores.ts, this is just for fallback
-      {
-        source: { id: "espn", name: "ESPN" },
-        author: "Sports Desk",
-        title: "Live Scores Available in Dedicated Scores Section",
-        description: "Real-time football and cricket scores are fetched from specialized sports APIs. Switch to Live Scores tab for real-time updates.",
-        url: "https://www.espn.com",
-        urlToImage: "https://images.unsplash.com/photo-1461896836934-ffe607ba8211?w=800&h=600&fit=crop",
-        publishedAt: new Date().toISOString(),
-        content: "This is a placeholder. Live scores are handled by a dedicated service with 60-second updates.",
       },
     ],
   };
