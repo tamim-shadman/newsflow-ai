@@ -179,6 +179,14 @@ export async function fetchNewsByCategory(
   pageSize: number = 20
 ): Promise<NewsAPIArticle[]> {
   const cacheKey = `news_${category}_${pageSize}`;
+
+  if (category === "bangladesh") {
+    const bangladeshNews = await fetchBangladeshNews(pageSize);
+    if (bangladeshNews.length > 0) {
+      return bangladeshNews;
+    }
+    return getFallbackNews("bangladesh", pageSize);
+  }
   
   try {
     // Check cache first (2-hour TTL)
@@ -591,6 +599,7 @@ function getCategoryAPIsPriority(category: CategoryType): string[] {
   const priorities: Partial<Record<CategoryType, string[]>> = {
     // TECHNOLOGY: Guardian → HackerNews → Dev.to → GitHub Trending → Currents → GNews → NewsData
     technology: ['guardian', 'hackernews', 'devto', 'github-trending', 'currents', 'gnews', 'newsdata'],
+    bangladesh: ['newsdata'],
     
     // SPORTS: Guardian → ESPN → SportsDB → Currents → NewsData
     sports: ['guardian', 'espn', 'sportsdb', 'currents', 'newsdata'],
@@ -1443,6 +1452,48 @@ function getFallbackNews(category: CategoryType, pageSize: number = 20): NewsAPI
         urlToImage: "https://images.unsplash.com/photo-1503676260728-1c00da094a0b?w=800&h=600&fit=crop",
         publishedAt: new Date(Date.now() - 11 * 60 * 60 * 1000).toISOString(),
         content: "Educational institutions embrace new pedagogical approaches combining digital tools with personalized learning strategies.",
+      },
+    ],
+    bangladesh: [
+      {
+        source: { id: "bd-daily", name: "Dhaka Daily" },
+        author: "Farhana Rahman",
+        title: "Metro Rail Expansion Eases Dhaka Commute",
+        description: "New metro rail stations open across Dhaka, reducing travel time for thousands of daily commuters.",
+        url: "https://example.com/bd-metro",
+        urlToImage: "https://images.unsplash.com/photo-1524499982521-1ffd58dd89ea?w=800&h=600&fit=crop",
+        publishedAt: new Date(Date.now() - 2 * 60 * 60 * 1000).toISOString(),
+        content: "Bangladesh inaugurated several metro rail stations, marking a major milestone in the country's transportation infrastructure.",
+      },
+      {
+        source: { id: "bd-finance", name: "Bangladesh Business" },
+        author: "Imran Chowdhury",
+        title: "Startup Ecosystem Thrives in Dhaka Tech Hubs",
+        description: "Bangladesh's startup community sees record investment as new innovation hubs open across the capital.",
+        url: "https://example.com/bd-startups",
+        urlToImage: "https://images.unsplash.com/photo-1474631245212-32dc3c8310c6?w=800&h=600&fit=crop",
+        publishedAt: new Date(Date.now() - 4 * 60 * 60 * 1000).toISOString(),
+        content: "Investors are backing Bangladeshi startups focused on fintech, agritech, and clean energy solutions at unprecedented levels.",
+      },
+      {
+        source: { id: "bd-health", name: "Health Bangladesh" },
+        author: "Dr. Nusrat Alam",
+        title: "Community Clinics Expand Healthcare Access",
+        description: "Government-led health initiatives bring modern medical facilities to rural districts across Bangladesh.",
+        url: "https://example.com/bd-health",
+        urlToImage: "https://images.unsplash.com/photo-1504439468489-c8920d796a29?w=800&h=600&fit=crop",
+        publishedAt: new Date(Date.now() - 6 * 60 * 60 * 1000).toISOString(),
+        content: "Newly established community clinics are offering affordable primary care and telemedicine services in remote regions.",
+      },
+      {
+        source: { id: "bd-sports", name: "Bangla Sports" },
+        author: "Rafiq Hasan",
+        title: "Bangladesh Cricket Team Clinches Historic Series",
+        description: "The Tigers secure a landmark victory in a home series, igniting celebrations nationwide.",
+        url: "https://example.com/bd-cricket",
+        urlToImage: "https://images.unsplash.com/photo-1516455207990-7a41ce80f7ee?w=800&h=600&fit=crop",
+        publishedAt: new Date(Date.now() - 8 * 60 * 60 * 1000).toISOString(),
+        content: "Bangladesh's national cricket team delivered a dominant performance, reinforcing its rise on the international stage.",
       },
     ],
     technology: [

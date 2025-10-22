@@ -86,6 +86,13 @@ const Index = () => {
       text: "text-purple-300",
       glow: "shadow-purple-500/50",
     },
+    bangladesh: {
+      gradient: "from-green-500 via-red-500 to-green-600",
+      bg: "bg-gradient-to-br from-green-900/30 via-red-900/30 to-green-900/30",
+      accent: "from-green-500 via-red-500 to-green-500",
+      text: "text-green-300",
+      glow: "shadow-green-500/50",
+    },
     trending: {
       gradient: "from-orange-500 via-red-500 to-pink-600",
       bg: "bg-gradient-to-br from-orange-900/30 via-red-900/30 to-pink-900/30",
@@ -139,6 +146,7 @@ const Index = () => {
 
   const categories = [
     { id: "all" as CategoryType, name: "All News", icon: Newspaper },
+    { id: "bangladesh" as CategoryType, name: "Bangladesh 🇧🇩", icon: Globe },
     { id: "trending" as CategoryType, name: "Trending", icon: Flame },
     { id: "technology" as CategoryType, name: "Technology", icon: Cpu },
     { id: "sports" as CategoryType, name: "Sports", icon: Trophy },
@@ -675,12 +683,12 @@ const Index = () => {
                     onClick={() => handleArticleClick(news.url, news.title)}
                     className={`absolute inset-0 transition-all duration-1000 transform cursor-pointer ${
                       index === currentSlide
-                        ? "opacity-100 scale-100 rotate-0"
+                        ? "opacity-100 scale-100 rotate-0 z-20 pointer-events-auto"
                         : index ===
                           (currentSlide - 1 + featuredNews.length) %
                             featuredNews.length
-                        ? "opacity-0 scale-95 -rotate-2"
-                        : "opacity-0 scale-105 rotate-2"
+                        ? "opacity-0 scale-95 -rotate-2 z-10 pointer-events-none"
+                        : "opacity-0 scale-105 rotate-2 z-10 pointer-events-none"
                     }`}
                   >
                     <img

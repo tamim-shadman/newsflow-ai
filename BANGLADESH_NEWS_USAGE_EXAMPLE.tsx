@@ -5,16 +5,17 @@
  * into your NewsFlow AI application.
  */
 
+import { useMemo } from "react";
 import { useQuery } from "@tanstack/react-query";
-import { fetchBangladeshNews } from "@/services/newsAggregator";
-import type { NewsArticle } from "@/types/news";
+import { fetchBangladeshNews, fetchNewsByCategory } from "./src/services/newsAggregator";
+import type { NewsAPIArticle } from "./src/types/news";
 
 // ============================================================================
 // EXAMPLE 1: Standalone Bangladesh News Section
 // ============================================================================
 
 export function BangladeshNewsSection() {
-  const { data: bdNews, isLoading, error } = useQuery({
+  const { data: bdNews, isLoading, error } = useQuery<NewsAPIArticle[]>({
     queryKey: ["bangladesh-news"],
     queryFn: () => fetchBangladeshNews(10),
     staleTime: 2 * 60 * 60 * 1000, // 2 hours cache
@@ -37,14 +38,14 @@ export function BangladeshNewsSection() {
       </h2>
       
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-        {bdNews?.map((article) => (
+  {bdNews?.map((article: NewsAPIArticle) => (
           <div
             key={article.url}
             onClick={() => window.open(article.url, "_blank")}
             className="bg-white/10 rounded-xl p-4 cursor-pointer hover:bg-white/20 transition-all"
           >
             <img
-              src={article.urlToImage}
+              src={article.urlToImage ?? "https://images.unsplash.com/photo-1504711434969-e33886168f5c?w=800&h=600&fit=crop"}
               alt={article.title}
               className="w-full h-48 object-cover rounded-lg mb-3"
             />
@@ -109,7 +110,8 @@ export async function fetchNewsByCategory(
 ): Promise<NewsAPIArticle[]> {
   // Add special handling for Bangladesh
   if (category === "bangladesh") {
-    return await fetchBangladeshNews(pageSize);
+    const articles = await fetchBangladeshNews(pageSize);
+    return articles.length > 0 ? articles : getFallbackNews("bangladesh", pageSize);
   }
   
   // ... rest of the function
@@ -121,25 +123,61 @@ export async function fetchNewsByCategory(
 // ============================================================================
 
 export function MixedNewsFeed() {
-  const { data: bdNews } = useQuery({
+  const { data: bdNews } = useQuery<NewsAPIArticle[]>({
     queryKey: ["bangladesh-news"],
     queryFn: () => fetchBangladeshNews(5),
   });
 
-  const { data: worldNews } = useQuery({
+  const { data: worldNews } = useQuery<NewsAPIArticle[]>({
     queryKey: ["world-news"],
     queryFn: () => fetchNewsByCategory("world", 5),
   });
 
-  // Combine and shuffle
-  const mixedNews = [...(bdNews || []), ...(worldNews || [])];
+  const dedupedArticles = useMemo(() => {
+    const combined = [...(bdNews || []), ...(worldNews || [])];
+    const map = new Map<string, NewsAPIArticle>();
+    combined.forEach((article) => {
+      if (!map.has(article.url)) {
+        map.set(article.url, article);
+      }
+    });
+    return Array.from(map.values());
+  }, [bdNews, worldNews]);
 
   return (
-    <div>
-      <h2 className="text-3xl font-bold text-white mb-6">
+    <div className="space-y-6">
+      <h2 className="text-3xl font-bold text-white">
         Global & Bangladesh News
       </h2>
-      {/* Render mixed news */}
+      {dedupedArticles.length === 0 ? (
+        <div className="text-gray-300">Loading combined feed...</div>
+      ) : (
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+          {dedupedArticles.map((article: NewsAPIArticle) => (
+            <article
+              key={article.url}
+              onClick={() => window.open(article.url, "_blank")}
+              className="bg-white/10 rounded-xl p-4 hover:bg-white/20 transition cursor-pointer"
+            >
+              <img
+                src={article.urlToImage || "https://images.unsplash.com/photo-1504711434969-e33886168f5c?w=600&h=400&fit=crop"}
+                alt={article.title}
+                className="w-full h-48 object-cover rounded-lg mb-3"
+              />
+              <h3 className="text-white font-semibold text-lg mb-2 line-clamp-2">
+                {article.title}
+              </h3>
+              <p className="text-gray-300 text-sm line-clamp-3">
+                {article.description}
+              </p>
+              <div className="mt-3 text-xs text-gray-400 flex justify-between">
+                <span>{article.source?.name}</span>
+                <span>{new Date(article.publishedAt).toLocaleDateString()}</span>
+              </div>
+            </article>
+          ))}
+        </div>
+      )}
     </div>
   );
 }
@@ -149,7 +187,7 @@ export function MixedNewsFeed() {
 // ============================================================================
 
 export function BangladeshNewsTicker() {
-  const { data: bdNews } = useQuery({
+  const { data: bdNews } = useQuery<NewsAPIArticle[]>({
     queryKey: ["bangladesh-ticker"],
     queryFn: () => fetchBangladeshNews(10),
   });
@@ -157,8 +195,8 @@ export function BangladeshNewsTicker() {
   return (
     <div className="bg-gradient-to-r from-green-600 to-red-600 text-white py-2 overflow-hidden">
       <div className="flex animate-scroll">
-        {bdNews?.map((news, idx) => (
-          <span key={idx} className="mx-8 whitespace-nowrap">
+        {bdNews?.map((news: NewsAPIArticle, idx: number) => (
+          <span key={news.url ?? idx} className="mx-8 whitespace-nowrap">
             🇧🇩 {news.title}
           </span>
         ))}
@@ -171,6 +209,7 @@ export function BangladeshNewsTicker() {
 // EXAMPLE 5: Direct API Call (for testing)
 // ============================================================================
 
+// eslint-disable-next-line react-refresh/only-export-components
 export async function testBangladeshNewsAPI() {
   try {
     console.log("🇧🇩 Testing Bangladesh News API...");
@@ -196,13 +235,13 @@ export async function testBangladeshNewsAPI() {
 // ============================================================================
 
 export function FilteredBangladeshNews() {
-  const { data: bdNews } = useQuery({
+  const { data: bdNews } = useQuery<NewsAPIArticle[]>({
     queryKey: ["bangladesh-news-filtered"],
     queryFn: async () => {
       const allNews = await fetchBangladeshNews(50);
       
       // Filter for specific topics (example: tech and business)
-      return allNews.filter(article => {
+  return allNews.filter((article: NewsAPIArticle) => {
         const text = `${article.title} ${article.description}`.toLowerCase();
         return (
           text.includes('technology') ||
@@ -229,22 +268,20 @@ export function FilteredBangladeshNews() {
 // ============================================================================
 
 /*
-// In Index.tsx or any component:
+Example usage (Index.tsx):
 
-import { BangladeshNewsSection } from './BangladeshNewsUsageExample';
+import { BangladeshNewsSection } from "./BangladeshNewsUsageExample";
 
 function App() {
   return (
     <div>
-      {/* Your existing news sections */}
-      
-      {/* Add Bangladesh news section */}
+      // Existing news sections
       <BangladeshNewsSection />
     </div>
   );
 }
 
 // OR test in browser console:
-import { testBangladeshNewsAPI } from './BangladeshNewsUsageExample';
+import { testBangladeshNewsAPI } from "./BangladeshNewsUsageExample";
 await testBangladeshNewsAPI();
 */
