@@ -869,15 +869,17 @@ const Index = () => {
                   {/* Navigation Buttons - Responsive */}
                   <button
                     onClick={prevSlide}
-                    className={`absolute left-2 sm:left-6 top-1/2 -translate-y-1/2 p-2 sm:p-4 rounded-full bg-gradient-to-r ${theme.accent} text-white opacity-95 hover:opacity-100 transition-all hover:scale-110 active:scale-95 shadow-2xl ${theme.glow} z-40`}
+                    className="absolute left-2 sm:left-6 top-1/2 -translate-y-1/2 flex items-center justify-center p-2 sm:p-3 rounded-full bg-black/70 text-white hover:bg-black/90 transition-all hover:scale-110 active:scale-95 shadow-xl shadow-black/40 border border-white/30 z-40"
+                    aria-label="Previous slide"
                   >
-                    <ChevronLeft className="w-4 h-4 sm:w-6 sm:h-6" />
+                    <ChevronLeft className="w-4 h-4 sm:w-5 sm:h-5" />
                   </button>
                   <button
                     onClick={nextSlide}
-                    className={`absolute right-2 sm:right-6 top-1/2 -translate-y-1/2 p-2 sm:p-4 rounded-full bg-gradient-to-r ${theme.accent} text-white opacity-95 hover:opacity-100 transition-all hover:scale-110 active:scale-95 shadow-2xl ${theme.glow} z-40`}
+                    className="absolute right-2 sm:right-6 top-1/2 -translate-y-1/2 flex items-center justify-center p-2 sm:p-3 rounded-full bg-black/70 text-white hover:bg-black/90 transition-all hover:scale-110 active:scale-95 shadow-xl shadow-black/40 border border-white/30 z-40"
+                    aria-label="Next slide"
                   >
-                    <ChevronRight className="w-4 h-4 sm:w-6 sm:h-6" />
+                    <ChevronRight className="w-4 h-4 sm:w-5 sm:h-5" />
                   </button>
 
                   {/* Carousel Indicators - Responsive */}
