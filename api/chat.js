@@ -12,11 +12,15 @@ const requestCounts = {
   gemini: { count: 0, resetTime: Date.now() + 60 * 60 * 1000 },
 };
 
-// Rate limits per hour (conservative estimates)
+// Rate limits per hour (per-instance guard rails)
 const RATE_LIMITS = {
-  groq: 30,   // Free tier: ~30 requests/minute, we'll limit to 30/hour to be safe
-  gemini: 50, // Free tier: 50 requests/day, limit to 50/hour
+  groq: 300,
+  gemini: 200,
 };
+
+const GROQ_KEY = process.env.GROQ_API_KEY || process.env.VITE_GROQ_API_KEY || process.env.NEXT_PUBLIC_GROQ_API_KEY;
+const GEMINI_KEY = process.env.GEMINI_API_KEY || process.env.VITE_GEMINI_API_KEY || process.env.NEXT_PUBLIC_GEMINI_API_KEY;
+const OPENROUTER_KEY = process.env.OPENROUTER_API_KEY || process.env.VITE_OPENROUTER_API_KEY || process.env.NEXT_PUBLIC_OPENROUTER_API_KEY;
 
 function checkRateLimit(provider) {
   const now = Date.now();
@@ -75,13 +79,13 @@ export default async function handler(req, res) {
   }
 
   // Strategy 1: Try Groq first (fastest and most reliable)
-  if (process.env.GROQ_API_KEY && checkRateLimit('groq')) {
+  if (GROQ_KEY && checkRateLimit('groq')) {
     try {
       console.log('🚀 Trying Groq API...');
       const groqResponse = await fetch('https://api.groq.com/openai/v1/chat/completions', {
         method: 'POST',
         headers: {
-          'Authorization': `Bearer ${process.env.GROQ_API_KEY}`,
+          'Authorization': `Bearer ${GROQ_KEY}`,
           'Content-Type': 'application/json'
         },
         body: JSON.stringify({
@@ -112,7 +116,7 @@ export default async function handler(req, res) {
   }
 
   // Strategy 2: Fallback to Gemini
-  if (process.env.GEMINI_API_KEY && checkRateLimit('gemini')) {
+  if (GEMINI_KEY && checkRateLimit('gemini')) {
     try {
       console.log('🚀 Trying Gemini API...');
       
@@ -123,7 +127,7 @@ export default async function handler(req, res) {
       }));
 
       const geminiResponse = await fetch(
-        `https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=${process.env.GEMINI_API_KEY}`,
+  `https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=${GEMINI_KEY}`,
         {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
@@ -168,13 +172,13 @@ export default async function handler(req, res) {
   }
 
   // Strategy 3: Last resort - use OpenRouter (aggregates many providers)
-  if (process.env.OPENROUTER_API_KEY) {
+  if (OPENROUTER_KEY) {
     try {
       console.log('🚀 Trying OpenRouter API (last resort)...');
       const openrouterResponse = await fetch('https://openrouter.ai/api/v1/chat/completions', {
         method: 'POST',
         headers: {
-          'Authorization': `Bearer ${process.env.OPENROUTER_API_KEY}`,
+          'Authorization': `Bearer ${OPENROUTER_KEY}`,
           'Content-Type': 'application/json',
           'HTTP-Referer': process.env.VERCEL_URL || 'http://localhost:3000',
         },
@@ -196,15 +200,32 @@ export default async function handler(req, res) {
         console.log('✅ OpenRouter API success');
         return res.status(200).json(response);
       }
+      console.log(`⚠️ OpenRouter failed with status: ${openrouterResponse.status}`);
     } catch (error) {
       console.log('⚠️ OpenRouter error:', error.message);
     }
   }
 
-  // All providers failed
-  console.error('❌ All LLM providers failed');
-  res.status(503).json({ 
-    error: 'All AI providers are currently unavailable. Please try again later.',
-    details: 'Tried: Groq, Gemini, OpenRouter'
-  });
+  // All providers failed — respond gracefully with a deterministic fallback so UI never errors.
+  console.error('❌ All LLM providers failed, returning fallback content');
+
+  const fallbackSummary = {
+    choices: [
+      {
+        index: 0,
+        finish_reason: 'fallback',
+        message: {
+          role: 'assistant',
+          content:
+            'AI summary is temporarily unavailable. Latest headlines remain accessible, and you can retry shortly.'
+        }
+      }
+    ],
+    provider: 'fallback',
+    model: 'offline-fallback'
+  };
+
+  cache.set(cacheKey, { data: fallbackSummary, timestamp: Date.now() });
+
+  res.status(200).json(fallbackSummary);
 }
