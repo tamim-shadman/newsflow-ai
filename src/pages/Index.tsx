@@ -24,6 +24,7 @@ import {
   ExternalLink,
   FileText,
   Loader2,
+  X,
 } from "lucide-react";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
@@ -72,6 +73,7 @@ const Index = () => {
   const [viewCounts] = useState<Map<string, string>>(new Map());
   const [loadingSummary, setLoadingSummary] = useState<string | null>(null);
   const [summaries, setSummaries] = useState<Map<string, string>>(new Map());
+  const [openSummaryFor, setOpenSummaryFor] = useState<string | null>(null);
   
   // Lazy loading state
   const [displayCount, setDisplayCount] = useState(6); // Show 1/5th initially (30 articles / 5 = 6)
@@ -610,7 +612,7 @@ const Index = () => {
       {/* Category Navigation - Responsive & Touch-Friendly */}
       <nav className="sticky z-10 top-[120px] sm:top-[89px] backdrop-blur-2xl bg-black/40 border-b border-white/20 shadow-xl">
         <div className="max-w-7xl mx-auto px-2 sm:px-4 lg:px-8">
-          <div className="flex space-x-2 sm:space-x-3 overflow-x-auto py-3 sm:py-5 scrollbar-hide scroll-smooth">
+          <div className="flex flex-nowrap lg:flex-wrap gap-2 sm:gap-3 overflow-x-auto lg:overflow-visible py-3 sm:py-5 scrollbar-hide scroll-smooth justify-start lg:justify-center">
             {categories.map((cat) => {
               const Icon = cat.icon;
               const isActive = activeCategory === cat.id;
@@ -818,13 +820,13 @@ const Index = () => {
                   {/* Navigation Buttons - Responsive */}
                   <button
                     onClick={prevSlide}
-                    className={`absolute left-2 sm:left-6 top-1/2 -translate-y-1/2 p-2 sm:p-4 rounded-full bg-gradient-to-r ${theme.accent} text-white opacity-80 sm:opacity-0 group-hover:opacity-100 transition-all hover:scale-110 active:scale-95 shadow-2xl ${theme.glow}`}
+                    className={`absolute left-2 sm:left-6 top-1/2 -translate-y-1/2 p-2 sm:p-4 rounded-full bg-gradient-to-r ${theme.accent} text-white opacity-95 hover:opacity-100 transition-all hover:scale-110 active:scale-95 shadow-2xl ${theme.glow}`}
                   >
                     <ChevronLeft className="w-4 h-4 sm:w-6 sm:h-6" />
                   </button>
                   <button
                     onClick={nextSlide}
-                    className={`absolute right-2 sm:right-6 top-1/2 -translate-y-1/2 p-2 sm:p-4 rounded-full bg-gradient-to-r ${theme.accent} text-white opacity-80 sm:opacity-0 group-hover:opacity-100 transition-all hover:scale-110 active:scale-95 shadow-2xl ${theme.glow}`}
+                    className={`absolute right-2 sm:right-6 top-1/2 -translate-y-1/2 p-2 sm:p-4 rounded-full bg-gradient-to-r ${theme.accent} text-white opacity-95 hover:opacity-100 transition-all hover:scale-110 active:scale-95 shadow-2xl ${theme.glow}`}
                   >
                     <ChevronRight className="w-4 h-4 sm:w-6 sm:h-6" />
                   </button>
@@ -1002,12 +1004,21 @@ const Index = () => {
                         >
                           <Share2 className="w-3 h-3 sm:w-4 sm:h-4 text-white" />
                         </button>
-                        <Popover>
+                        <Popover
+                          open={openSummaryFor === article.url}
+                          onOpenChange={(isOpen) => {
+                            if (isOpen) {
+                              setOpenSummaryFor(article.url);
+                              handleSummarize(article.url);
+                            } else {
+                              setOpenSummaryFor(prev => (prev === article.url ? null : prev));
+                            }
+                          }}
+                        >
                           <PopoverTrigger asChild>
                             <button
                               onClick={(e) => {
                                 e.stopPropagation();
-                                handleSummarize(article.url);
                               }}
                               className="p-2 rounded-full bg-black/70 backdrop-blur-xl hover:bg-gradient-to-r hover:from-purple-500 hover:to-pink-500 transition-all opacity-0 group-hover:opacity-100"
                               title="AI Summary"
@@ -1020,12 +1031,23 @@ const Index = () => {
                             </button>
                           </PopoverTrigger>
                           <PopoverContent
-                            className="w-[calc(100vw-2rem)] sm:w-[400px] md:w-[450px] max-h-[70vh] bg-black/80 backdrop-blur-3xl border border-purple-500/40 text-white p-4 sm:p-5 z-50 shadow-[0_0_50px_rgba(168,85,247,0.4)] rounded-2xl overflow-hidden data-[state=open]:animate-in data-[state=closed]:animate-out data-[state=closed]:fade-out-0 data-[state=open]:fade-in-0 data-[state=closed]:zoom-out-95 data-[state=open]:zoom-in-95 data-[side=bottom]:slide-in-from-top-2 data-[side=left]:slide-in-from-right-2 data-[side=right]:slide-in-from-left-2 data-[side=top]:slide-in-from-bottom-2"
+                            className="relative w-[calc(100vw-2rem)] sm:w-[400px] md:w-[450px] max-h-[70vh] bg-black/80 backdrop-blur-3xl border border-purple-500/40 text-white p-4 sm:p-5 z-50 shadow-[0_0_50px_rgba(168,85,247,0.4)] rounded-2xl overflow-hidden transition-opacity duration-200 data-[state=open]:animate-in data-[state=closed]:animate-out data-[state=closed]:fade-out-0 data-[state=open]:fade-in-0 data-[state=closed]:zoom-out-95 data-[state=open]:zoom-in-95 data-[side=bottom]:slide-in-from-top-2 data-[side=left]:slide-in-from-right-2 data-[side=right]:slide-in-from-left-2 data-[side=top]:slide-in-from-bottom-2"
                             onClick={(e) => e.stopPropagation()}
                             side="top"
                             align="center"
                             sideOffset={10}
                           >
+                            <button
+                              type="button"
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                setOpenSummaryFor(null);
+                              }}
+                              className="absolute top-3 right-3 p-1.5 rounded-full bg-white/10 hover:bg-white/20 text-white transition-all"
+                              aria-label="Close summary"
+                            >
+                              <X className="w-4 h-4" />
+                            </button>
                             <div className="space-y-3 h-full flex flex-col">
                               <div className="flex items-center justify-between pb-3 border-b border-purple-500/30 flex-shrink-0">
                                 <div className="flex items-center space-x-2">
