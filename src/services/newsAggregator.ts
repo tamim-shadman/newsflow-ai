@@ -236,8 +236,8 @@ export async function fetchNewsByCategory(
       }
     }
     
-    // If serverless failed or not in production, try direct fetch (with timeout)
-    if (articles.length === 0) {
+    // If serverless failed and we're in local development, try direct fetch (with timeout)
+    if (!IS_PRODUCTION && articles.length === 0) {
       try {
         const fetchPromise = fetchNewsDirectly(category, pageSize);
         const timeoutPromise = new Promise<NewsAPIArticle[]>((_, reject) => 
@@ -338,8 +338,8 @@ export async function fetchTrendingNews(
       }
     }
     
-    // If serverless failed, try direct fetch
-    if (articles.length === 0) {
+    // If serverless failed, try direct fetch (development only)
+    if (!IS_PRODUCTION && articles.length === 0) {
       articles = await fetchNewsDirectly("all", pageSize);
     }
 

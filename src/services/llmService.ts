@@ -1,205 +1,85 @@
 import Bytez from "bytez.js";
 import axios from "axios";
-import { GoogleGenAI } from "@google/genai";
 import type { NewsAPIArticle, EnhancedArticle } from "@/types/news";
 
-// Initialize Bytez SDK with your unlimited API key from environment
-const BYTEZ_API_KEY = import.meta.env.VITE_BYTEZ_API_KEY || "35bd52b6cfe7361a4be07c52686dac28";
-const sdk = new Bytez(BYTEZ_API_KEY);
-
-// Use BART-large-CNN - specialized for news summarization (PRIMARY)
-const bartModel = sdk.model("facebook/bart-large-cnn");
-
-// Groq as FALLBACK when BART fails
 const IS_PRODUCTION = import.meta.env.PROD;
-const GROQ_API_URL = IS_PRODUCTION ? "/api/chat" : "https://api.groq.com/openai/v1/chat/completions";
-const GROQ_API_KEY = import.meta.env.VITE_GROQ_API_KEY || import.meta.env.GROQ_API_KEY || "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";
+
+// Initialize Bytez SDK only when a key is configured
+const BYTEZ_API_KEY = import.meta.env.VITE_BYTEZ_API_KEY || import.meta.env.BYTEZ_API_KEY;
+const sdk = BYTEZ_API_KEY ? new Bytez(BYTEZ_API_KEY) : null;
+const bartModel = sdk ? sdk.model("facebook/bart-large-cnn") : null;
+
+const GROQ_DIRECT_URL = "https://api.groq.com/openai/v1/chat/completions";
+const SERVER_LLM_ENDPOINT = IS_PRODUCTION
+  ? "/api/chat"
+  : import.meta.env.VITE_LLM_PROXY_URL || "/api/chat";
+const GROQ_API_KEY = import.meta.env.VITE_GROQ_API_KEY || import.meta.env.GROQ_API_KEY || "";
 const GROQ_MODEL = "llama-3.3-70b-versatile";
-
-// NVIDIA as SECOND FALLBACK when Groq fails
-const NVIDIA_API_KEY = import.meta.env.VITE_NVIDIA_API_KEY || import.meta.env.NVIDIA_API_KEY || "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";
-const NVIDIA_API_URL = "https://integrate.api.nvidia.com/v1";
-const NVIDIA_MODEL = "speakleash/bielik-11b-v2.6-instruct";
-
-// Gemini as THIRD FALLBACK when NVIDIA fails (using official Google GenAI SDK)
-const GEMINI_API_KEY = import.meta.env.VITE_GEMINI_API_KEY || import.meta.env.GEMINI_API_KEY || "AIzaSyB19UMtCWDyKky4mBiIWHyRXWXUCMQ4ed4";
-const GEMINI_MODEL = "gemini-2.0-flash-exp";
-let geminiClient: GoogleGenAI | null = null;
-
-// Initialize Gemini client only if API key is available
-try {
-  if (GEMINI_API_KEY && GEMINI_API_KEY !== "YOUR_GEMINI_API_KEY") {
-    geminiClient = new GoogleGenAI({ apiKey: GEMINI_API_KEY });
-    console.log("✅ Gemini AI initialized");
-  } else {
-    console.warn("⚠️ Gemini API key not configured - will use other providers");
-  }
-} catch (error) {
-  console.warn("⚠️ Failed to initialize Gemini:", error);
-  geminiClient = null;
-}
 
 interface GroqMessage {
   role: "system" | "user" | "assistant";
   content: string;
 }
 
-interface GroqResponse {
-  choices: Array<{
-    message: {
-      content: string;
-    };
-  }>;
-}
+type LLMContentPart = { text?: string; content?: string };
+type LLMMessage = { content?: string | LLMContentPart[] };
+type LLMChoice = { message?: LLMMessage | string; delta?: LLMMessage | string };
+type LLMResponsePayload = {
+  choices?: LLMChoice[];
+  text?: string;
+  output_text?: string;
+};
 
-/**
- * SECOND FALLBACK: Enhance article using NVIDIA (Bielik 11B) when Groq fails
- */
-async function enhanceWithNVIDIA(
-  article: NewsAPIArticle,
-  contentToSummarize: string
-): Promise<EnhancedArticle> {
-  console.log(`🔄 [FALLBACK 2] Summarizing with NVIDIA: ${article.title.substring(0, 50)}...`);
-
-  try {
-    const messages = [
-      {
-        role: "user",
-        content: `You are an expert news editor. Create a comprehensive summary of this news article.
-
-${contentToSummarize}
-
-Provide your response as JSON:
-{
-  "summary": "Complete, detailed summary with 6-8 sentences covering ALL key information, facts, quotes, and implications.",
-  "keyPoints": ["5-7 specific key takeaways with concrete details"]
-}`
-      }
-    ];
-
-    const response = await axios.post(
-      `${NVIDIA_API_URL}/chat/completions`,
-      {
-        model: NVIDIA_MODEL,
-        messages,
-        temperature: 0.2,
-        top_p: 0.7,
-        max_tokens: 1024,
-        stream: false
-      },
-      {
-        headers: {
-          'Authorization': `Bearer ${NVIDIA_API_KEY}`,
-          'Content-Type': 'application/json'
-        }
-      }
-    );
-
-    if (!response.data.choices?.[0]?.message?.content) {
-      throw new Error("Invalid NVIDIA response structure");
-    }
-
-    const content = response.data.choices[0].message.content;
-
-    // Extract JSON from response
-    let jsonContent = content;
-    const jsonMatch = content.match(/```json\s*([\s\S]*?)\s*```/) || content.match(/```\s*([\s\S]*?)\s*```/);
-    if (jsonMatch) {
-      jsonContent = jsonMatch[1];
-    }
-
-    const enhanced = JSON.parse(jsonContent.trim());
-
-    console.log(`✅ NVIDIA summary generated: ${enhanced.summary.substring(0, 60)}...`);
-
-    return {
-      originalTitle: article.title,
-      enhancedTitle: article.title,
-      originalExcerpt: article.description || "",
-      enhancedExcerpt: article.description || enhanced.summary?.substring(0, 150) || "",
-      summary: enhanced.summary || article.content || article.description || "Summary unavailable.",
-      keyPoints: enhanced.keyPoints || [],
-    };
-  } catch (nvidiaError) {
-    console.warn("⚠️ NVIDIA failed, falling back to Gemini...", nvidiaError);
-    // THIRD FALLBACK: Try Gemini if NVIDIA also fails
-    return await enhanceWithGemini(article, contentToSummarize);
+function coerceMessageToString(message?: LLMMessage | string): string | null {
+  if (!message) return null;
+  if (typeof message === "string") return message;
+  const { content } = message;
+  if (typeof content === "string") return content;
+  if (Array.isArray(content)) {
+    const combined = content
+      .map((part) => part?.text ?? part?.content ?? "")
+      .join(" ")
+      .trim();
+    return combined || null;
   }
+  return null;
 }
 
-/**
- * THIRD FALLBACK: Enhance article using Gemini (1.5 Flash) when BART and NVIDIA fail
- */
-async function enhanceWithGemini(
-  article: NewsAPIArticle,
-  contentToSummarize: string
-): Promise<EnhancedArticle> {
-  console.log(`🔄 [FALLBACK 3] Summarizing with Gemini: ${article.title.substring(0, 50)}...`);
+function extractMessageContent(data: unknown): string {
+  const payload = data as LLMResponsePayload | undefined;
 
-  try {
-    // Check if Gemini client is available
-    if (!geminiClient) {
-      throw new Error("Gemini client not initialized - API key missing");
+  if (payload?.choices && payload.choices.length > 0) {
+    const [firstChoice] = payload.choices;
+    const fromMessage = coerceMessageToString(firstChoice?.message);
+    if (fromMessage) {
+      return fromMessage;
     }
-
-    // Use the new Google GenAI SDK
-    const response = await geminiClient.models.generateContent({
-      model: GEMINI_MODEL,
-      contents: `You are an expert news editor. Create a comprehensive summary of this news article.
-
-${contentToSummarize}
-
-Provide your response as JSON:
-{
-  "summary": "Complete, detailed summary with 6-8 sentences covering ALL key information, facts, quotes, and implications.",
-  "keyPoints": ["5-7 specific key takeaways with concrete details"]
-}`,
-      config: {
-        temperature: 0.5,
-        maxOutputTokens: 800,
-      }
-    });
-
-    if (!response.text) {
-      throw new Error("Invalid Gemini response structure");
+    const fromDelta = coerceMessageToString(firstChoice?.delta);
+    if (fromDelta) {
+      return fromDelta;
     }
-
-    const content = response.text;
-
-    // Extract JSON from response
-    let jsonContent = content;
-    const jsonMatch = content.match(/```json\s*([\s\S]*?)\s*```/) || content.match(/```\s*([\s\S]*?)\s*```/);
-    if (jsonMatch) {
-      jsonContent = jsonMatch[1];
-    }
-
-    const enhanced = JSON.parse(jsonContent.trim());
-
-    console.log(`✅ Gemini summary generated: ${enhanced.summary.substring(0, 60)}...`);
-
-    return {
-      originalTitle: article.title,
-      enhancedTitle: article.title,
-      originalExcerpt: article.description || "",
-      enhancedExcerpt: article.description || enhanced.summary?.substring(0, 150) || "",
-      summary: enhanced.summary || article.content || article.description || "Summary unavailable.",
-      keyPoints: enhanced.keyPoints || [],
-    };
-  } catch (geminiError) {
-    console.warn("⚠️ Gemini failed, falling back to Groq...", geminiError);
-    // FOURTH FALLBACK: Try Groq if Gemini also fails
-    return await enhanceWithGroq(article, contentToSummarize);
   }
+
+  if (payload?.text && typeof payload.text === "string") {
+    return payload.text;
+  }
+
+  if (payload?.output_text && typeof payload.output_text === "string") {
+    return payload.output_text;
+  }
+
+  throw new Error("No message content returned from LLM provider");
 }
 
 /**
- * FOURTH FALLBACK: Enhance article using Groq (LLaMA 3.3 70B) when all else fails
+ * SERVER FALLBACK: Enhance article using the serverless LLM pipeline
+ * (Groq → Gemini → OpenRouter handled server-side)
  */
-async function enhanceWithGroq(
+async function enhanceWithServerLLM(
   article: NewsAPIArticle,
   contentToSummarize: string
 ): Promise<EnhancedArticle> {
-  console.log(`🔄 [FALLBACK 4] Summarizing with Groq/LLaMA: ${article.title.substring(0, 50)}...`);
+  console.log(`🔄 [FALLBACK] Summarizing via server LLM pipeline: ${article.title.substring(0, 50)}...`);
 
   const messages: GroqMessage[] = [
     {
@@ -220,45 +100,72 @@ Provide JSON response:
     },
   ];
 
-  const response = await axios.post<GroqResponse>(
-    GROQ_API_URL,
-    {
-      model: GROQ_MODEL,
-      messages,
-      temperature: 0.5,
-      max_tokens: 800,
-    },
-    IS_PRODUCTION
-      ? {}
-      : {
-          headers: {
-            Authorization: `Bearer ${GROQ_API_KEY}`,
-            "Content-Type": "application/json",
-          },
-        }
-  );
+  const payload = {
+    model: GROQ_MODEL,
+    messages,
+    temperature: 0.5,
+    max_tokens: 800,
+  };
 
-  const content = response.data.choices[0].message.content;
+  const endpoints: Array<{ url: string; headers?: Record<string, string> }> = [];
 
-  // Extract JSON from response
-  let jsonContent = content;
-  const jsonMatch = content.match(/```json\s*([\s\S]*?)\s*```/) || content.match(/```\s*([\s\S]*?)\s*```/);
-  if (jsonMatch) {
-    jsonContent = jsonMatch[1];
+  if (SERVER_LLM_ENDPOINT) {
+    endpoints.push({ url: SERVER_LLM_ENDPOINT });
   }
 
-  const enhanced = JSON.parse(jsonContent.trim());
+  const canUseDirectGroq = !IS_PRODUCTION && GROQ_API_KEY;
+  const shouldFallbackToDirect =
+    canUseDirectGroq &&
+    (!SERVER_LLM_ENDPOINT || SERVER_LLM_ENDPOINT === "/api/chat" || SERVER_LLM_ENDPOINT.startsWith("http://localhost"));
 
-  console.log(`✅ Groq summary generated: ${enhanced.summary.substring(0, 60)}...`);
+  if (shouldFallbackToDirect) {
+    endpoints.push({
+      url: GROQ_DIRECT_URL,
+      headers: {
+        Authorization: `Bearer ${GROQ_API_KEY}`,
+        "Content-Type": "application/json",
+      },
+    });
+  }
 
-  return {
-    originalTitle: article.title,
-    enhancedTitle: article.title,
-    originalExcerpt: article.description || "",
-    enhancedExcerpt: article.description || enhanced.summary?.substring(0, 150) || "",
-    summary: enhanced.summary || article.content || article.description || "Summary unavailable.",
-    keyPoints: enhanced.keyPoints || [],
-  };
+  let lastError: unknown = null;
+
+  for (const endpoint of endpoints) {
+    try {
+      const response = await axios.post(endpoint.url, payload, endpoint.headers ? { headers: endpoint.headers } : undefined);
+      const content = extractMessageContent(response.data);
+
+      // Extract JSON from response
+      let jsonContent = content;
+      const jsonMatch = content.match(/```json\s*([\s\S]*?)\s*```/) || content.match(/```\s*([\s\S]*?)\s*```/);
+      if (jsonMatch) {
+        jsonContent = jsonMatch[1];
+      }
+
+      const enhanced = JSON.parse(jsonContent.trim());
+
+      console.log(`✅ LLM summary generated via ${endpoint.url.includes("api/chat") ? "server" : "direct Groq"}: ${
+        (enhanced.summary || "").substring(0, 60)
+      }...`);
+
+      return {
+        originalTitle: article.title,
+        enhancedTitle: article.title,
+        originalExcerpt: article.description || "",
+        enhancedExcerpt: article.description || enhanced.summary?.substring(0, 150) || "",
+        summary: enhanced.summary || article.content || article.description || "Summary unavailable.",
+        keyPoints: enhanced.keyPoints || [],
+      };
+    } catch (error) {
+      lastError = error;
+      const message = error instanceof Error ? error.message : String(error);
+      console.warn(`⚠️ LLM endpoint failed (${endpoint.url}): ${message}`);
+    }
+  }
+
+  throw lastError instanceof Error
+    ? lastError
+    : new Error("All LLM endpoints failed to produce a summary");
 }
 
 /**
@@ -294,6 +201,11 @@ export async function enhanceArticleWithLLM(
       };
     }
 
+    if (!bartModel) {
+      console.warn("⚠️ BART model not configured, using server LLM fallback.");
+      return await enhanceWithServerLLM(article, contentToSummarize);
+    }
+
     console.log(`🤖 [PRIMARY] Summarizing with BART: ${article.title.substring(0, 50)}...`);
 
     // Try BART first (PRIMARY MODEL - unlimited API)
@@ -302,15 +214,8 @@ export async function enhanceArticleWithLLM(
     const { error, output } = await bartModel.run(prompt);
 
     if (error) {
-      console.warn("⚠️ BART failed, falling back to Groq...", error);
-      // FALLBACK 1: Try Groq if BART fails
-      try {
-        return await enhanceWithGroq(article, contentToSummarize);
-      } catch (groqError) {
-        console.warn("⚠️ Groq also failed, trying NVIDIA...", groqError);
-        // FALLBACK 2: Try NVIDIA if Groq fails
-        return await enhanceWithNVIDIA(article, contentToSummarize);
-      }
+      console.warn("⚠️ BART failed, invoking server LLM pipeline...", error);
+      return await enhanceWithServerLLM(article, contentToSummarize);
     }
 
     // BART returns a clean summary string - format it nicely
@@ -341,7 +246,7 @@ export async function enhanceArticleWithLLM(
       keyPoints: keyPoints,
     };
   } catch (error) {
-    console.error("❌ BART error, trying Gemini fallback:", error);
+    console.error("❌ BART runtime error, invoking server LLM fallback:", error);
 
     // Build content for fallback
     const contentToSummarize = [
@@ -353,13 +258,10 @@ export async function enhanceArticleWithLLM(
       .join(". ")
       .trim();
 
-    // FALLBACK: Try Gemini if BART throws exception
     try {
-      return await enhanceWithGemini(article, contentToSummarize);
+      return await enhanceWithServerLLM(article, contentToSummarize);
     } catch (fallbackError) {
-      console.error("❌ All AI models failed, returning original content:", fallbackError);
-      
-      // Final fallback: Return original content
+      console.error("❌ All AI pipelines failed, returning original content:", fallbackError);
       return {
         originalTitle: article.title,
         enhancedTitle: article.title,

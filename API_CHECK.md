@@ -6,12 +6,12 @@
 
 #### Football APIs
 1. **API-Football** ⚽
-   - Key: `API_FOOTBALL_SCORES_KEY=63c8ae99ddff0f59946364c1cac811f9`
+   - Key env var: `API_FOOTBALL_SCORES_KEY`
    - Limit: 100 requests/day
    - Status: ✅ ACTIVE (Primary)
 
 2. **Football-Data.org** ⚽
-   - Key: `FOOTBALL_DATA_KEY=c243f78ea8174142981482fd30469b4f`
+   - Key env var: `FOOTBALL_DATA_KEY`
    - Limit: 10 requests/minute
    - Status: ✅ ACTIVE (Backup)
 
@@ -21,18 +21,18 @@
    - Status: ✅ ACTIVE (Emergency)
 
 4. **TheSportsDB** ⚽🏏 (Multi-Sport)
-   - Key: `SPORTSDB_API_KEY=3`
+   - Key env var: `SPORTSDB_API_KEY`
    - Limit: 30 requests/minute
    - Status: ✅ ACTIVE (PRIMARY - Gets both football & cricket)
 
 #### Cricket APIs
 1. **CricAPI** 🏏
-   - Key: `CRICAPI_KEY=a4a4eb75-06c9-47eb-95a7-81f1c338cbe1`
+   - Key env var: `CRICAPI_KEY`
    - Limit: 100 requests/day
    - Status: ✅ ACTIVE (Primary)
 
 2. **Cricbuzz (via RapidAPI)** 🏏
-   - Key: `RAPIDAPI_KEY=c3f0663f31msh30f5de805cd9691p140b53jsnb8c27b486a99`
+   - Key env var: `RAPIDAPI_KEY`
    - Limit: 500 requests/month
    - Status: ✅ ACTIVE (Backup)
 
@@ -62,6 +62,11 @@ CRICKET FALLBACK:
 └── Cricbuzz (500/month) ← DIRECT BACKUP (EntitySport removed)
 ```
 
+### LLM & News Proxy Notes
+
+- Front-end now calls the serverless `api/chat` endpoint in production, which handles the Groq → Gemini → OpenRouter fallback sequence with proper CORS headers. No client request goes directly to NVIDIA/Groq APIs anymore.
+- News fetching in production always uses the `api/news` serverless function. Direct third-party requests are limited to local development to avoid browser CORS rejections.
+
 ---
 
 ## Capacity Analysis (Updated)
@@ -84,25 +89,25 @@ CRICKET FALLBACK:
 ## Other APIs Configured
 
 ### News APIs ✅
-1. **NewsData.io** - `pub_e7edc2b3b7e44a78b891c814f80a776c` (200/day)
-2. **Currents API** - `OmKK9GPTMkdbxKF5BXNNdzlbek9i5-kt2r0g1yvHSv5qkegU` (600/day)
-3. **GNews** - `93644212279a40b0372b712dcff85720` (100/day)
-4. **The Guardian** - `4c8136ad-78a4-4f01-b98c-32c596fba987` (5000/day)
+1. **NewsData.io** - env var `NEWSDATA_API_KEY` (200/day)
+2. **Currents API** - env var `CURRENTS_API_KEY` (600/day)
+3. **GNews** - env var `GNEWS_API_KEY` (100/day)
+4. **The Guardian** - env var `GUARDIAN_API_KEY` (5000/day)
 
 ### Business/Finance APIs ✅
-1. **Alpha Vantage** - `GH1L2CJPLUIWDDSD` (25/day)
-2. **Marketaux** - `IQuhSHIKmv3CiXoIWNsN9Dq5dkZT6WmL3rLOeiZt` (100/day)
-3. **Financial Modeling Prep** - `Y6eIxS5Y3Pu7HxcwtuysnMv33NX4O7Ws` (250/day)
+1. **Alpha Vantage** - env var `ALPHA_VANTAGE_API_KEY` (25/day)
+2. **Marketaux** - env var `MARKETAUX_API_KEY` (100/day)
+3. **Financial Modeling Prep** - env var `FMP_API_KEY` (250/day)
 
 ### Entertainment APIs ✅
-1. **TMDB** - `cc21985d0a7d0a993daba262f1286754` (1M/month)
-2. **OMDb** - `649f5d6a-7045-4323-9c0d-1df13b9420ea` (1000/day)
+1. **TMDB** - env var `TMDB_API_KEY` (1M/month)
+2. **OMDb** - env var `OMDB_API_KEY` (1000/day)
 
 ### AI/LLM APIs ✅
-1. **Bytez (BART)** - `35bd52b6cfe7361a4be07c52686dac28` (Unlimited)
-2. **GROQ** - `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`
-3. **Gemini** - `AIzaSyDQdmDxoaiY4pHYpcIBcdMcf4y0hRLwnlA` (60/min)
-4. **OpenRouter** - `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`
+1. **Bytez (BART)** - env var `VITE_BYTEZ_API_KEY`
+2. **GROQ** - env var `GROQ_API_KEY`
+3. **Gemini** - env var `GEMINI_API_KEY`
+4. **OpenRouter** - env var `OPENROUTER_API_KEY`
 
 ---
 
