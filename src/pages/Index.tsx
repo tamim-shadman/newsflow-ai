@@ -806,15 +806,15 @@ const Index = () => {
                       }`}
                       style={{ pointerEvents: isActive ? "auto" : "none" }}
                     >
-                      <div className="relative h-full w-full pointer-events-none">
+                      <div className="relative h-full w-full">
                     <img
                       src={news.image}
                       alt={news.title}
-                      className="w-full h-full object-cover"
+                      className="w-full h-full object-cover pointer-events-none"
                     />
-                    <div className="absolute inset-0 bg-gradient-to-t from-black via-black/70 to-transparent" />
+                    <div className="absolute inset-0 bg-gradient-to-t from-black via-black/70 to-transparent pointer-events-none" />
 
-                    <div className="absolute inset-0 opacity-30">
+                    <div className="absolute inset-0 opacity-30 pointer-events-none">
                       {[...Array(10)].map((_, i) => (
                         <div
                           key={i}
