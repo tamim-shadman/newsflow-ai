@@ -324,10 +324,12 @@ All functions include:
 
 ### Environment Variables Needed (Vercel):
 ```
-# AI Models (3 keys)
-VITE_BYTEZ_API_KEY
-GEMINI_API_KEY
+# AI Models (5 keys)
+HF_TOKEN
+CEREBRAS_API_KEY
 GROQ_API_KEY
+GEMINI_API_KEY
+OPENROUTER_API_KEY
 
 # Core News APIs (4 keys - essential)
 GUARDIAN_API_KEY
@@ -344,6 +346,8 @@ RSS2JSON_API_KEY
 ```
 
 **Note**: 11 APIs work without keys (HackerNews, Dev.to, ESPN, PubMed, CDC, TVMaze, BBC, Reuters, GitHub, Saurav)
+
+**LLM Tokens**: Hugging Face (primary) and Cerebras (fallback) must be configured; Groq/Gemini/OpenRouter remain optional fallbacks for server-driven summaries.
 
 ---
 

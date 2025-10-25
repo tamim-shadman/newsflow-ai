@@ -333,14 +333,14 @@ Second visit (within 2 hours):
 
 ---
 
-### Issue 5: BART summarization fails
+### Issue 5: Hugging Face summarization fails
 **Symptoms**: AI summary not generating
 
 **Solutions**:
-- Check `VITE_BYTEZ_API_KEY` in `.env`
-- Verify Bytez API quota (should be unlimited)
+- Check `HF_TOKEN` in `.env`
+- Ensure Hugging Face Inference access is active
 - Check console for specific error
-- Should fall back to Gemini automatically
+- Should fall back to Cerebras → Gemini automatically
 
 ---
 
@@ -352,8 +352,8 @@ Second visit (within 2 hours):
 ✅ Fallback chains activate when primary fails
 ✅ Caching reduces API calls (2-hour TTL)
 ✅ 24-hour content filter working
-✅ AI summarization with BART working
-✅ Gemini/Groq fallbacks working
+✅ AI summarization via Hugging Face working
+✅ Cerebras/Gemini/Groq fallbacks working
 ✅ Console logs show clear routing strategy
 ✅ No TypeScript errors
 ✅ Performance is fast (< 3s load times)

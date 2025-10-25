@@ -9,10 +9,11 @@ An AI-powered news aggregation platform with **20+ specialized news sources** an
 ## ✨ Features
 
 ### 🤖 Advanced AI Enhancement (4-Tier System)
-- **Primary**: BART-large-CNN (Bytez) - Specialized news summarization, unlimited quota
-- **Fallback 1**: Gemini 1.5 Flash - 60 req/min, high-quality summaries
-- **Fallback 2**: Groq + LLaMA 3.3 70B - Rate-limited but powerful
-- **Fallback 3**: Original content if all AI models fail
+- **Primary**: Hugging Face Inference (BART-large-CNN) - High-quality abstractive summaries
+- **Fallback 1**: Cerebras Inference (LLaMA 3.3 70B) - Fast transformer fallback
+- **Fallback 2**: Gemini 1.5 Flash - 60 req/min, high-quality summaries
+- **Fallback 3**: Groq + LLaMA 3.3 70B - Rate-limited but powerful
+- **Fallback 4**: Original content if all AI models fail
 
 ### 📰 Comprehensive News Coverage (20+ APIs)
 - **Technology**: Guardian → Hacker News → Dev.to → GitHub Trending
@@ -63,7 +64,8 @@ An AI-powered news aggregation platform with **20+ specialized news sources** an
 - **HTTP Client**: Axios with timeout handling
 
 ### AI & Summarization
-- **BART-large-CNN** (Bytez.js): Primary model, unlimited API, 406M parameters
+- **Hugging Face Inference** (BART-large-CNN): Primary abstractive summarizer
+- **Cerebras Inference** (LLaMA 3.3 70B): First fallback, low-latency summaries
 - **Gemini 1.5 Flash** (Google): Second fallback, 60 req/min
 - **LLaMA 3.3 70B** (Groq): Third fallback, rate-limited
 
@@ -108,13 +110,16 @@ npm install
 
 ```env
 # ===== AI MODELS =====
-# Bytez (BART-large-CNN) - PRIMARY: https://platform.bytez.com
-VITE_BYTEZ_API_KEY=your_bytez_api_key
+# Hugging Face Inference (BART-large-CNN) - PRIMARY: https://huggingface.co/inference-api
+HF_TOKEN=your_hf_inference_token
 
-# Gemini API - FALLBACK 1: https://makersuite.google.com/app/apikey
+# Cerebras Inference (LLaMA 3.3 70B) - FALLBACK 1: https://cloud.cerebras.ai
+CEREBRAS_API_KEY=your_cerebras_api_key
+
+# Gemini API - FALLBACK 2: https://makersuite.google.com/app/apikey
 GEMINI_API_KEY=your_gemini_api_key
 
-# Groq API - FALLBACK 2: https://console.groq.com
+# Groq API - FALLBACK 3: https://console.groq.com
 GROQ_API_KEY=your_groq_api_key
 
 # ===== NEWS SOURCES =====
@@ -272,7 +277,7 @@ src/
 
 ### Key Files:
 - **newsAggregator.ts** (1,300+ lines): Manages 20+ news APIs with category-specific routing
-- **llmService.ts** (370 lines): 4-tier AI fallback system (BART → Gemini → Groq)
+- **llmService.ts** (370 lines): Multi-tier AI fallback system (Hugging Face → Cerebras → Gemini → Groq)
 - **Index.tsx** (1,200+ lines): Main UI with AI summary popup and animations
 
 ### Available Scripts
@@ -297,7 +302,7 @@ See [TESTING_GUIDE.md](./TESTING_GUIDE.md) for comprehensive testing instruction
 ### Minimum Setup (Free APIs Only):
 ```env
 # These are enough to get started
-VITE_BYTEZ_API_KEY=get_from_bytez.com
+HF_TOKEN=get_from_huggingface.com
 GUARDIAN_API_KEY=get_from_guardian.com
 # All other APIs work without keys!
 ```
@@ -305,11 +310,12 @@ GUARDIAN_API_KEY=get_from_guardian.com
 ### Recommended Setup (Best Experience):
 Get free API keys from:
 1. **Guardian** (5000/day): Essential for all categories
-2. **Bytez** (unlimited): Best AI summarization
-3. **Gemini** (60/min): AI fallback
-4. **Groq** (rate-limited): AI second fallback
-5. **Currents** (600/day): Good general news
-6. **GNews** (100/day): Additional coverage
+2. **Hugging Face** (Inference API): Best AI summarization
+3. **Cerebras** (cloud inference): AI fallback
+4. **Gemini** (60/min): AI fallback
+5. **Groq** (rate-limited): Additional AI fallback
+6. **Currents** (600/day): Good general news
+7. **GNews** (100/day): Additional coverage
 
 Optional specialization (improves specific categories):
 - **Alpha Vantage** (25/day): Better business news

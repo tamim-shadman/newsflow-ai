@@ -48,10 +48,11 @@ Guardian → BBC RSS → Reuters RSS → Currents → GNews → NewsData
 
 ## 🔑 Essential API Keys
 
-### Must Have (4 keys):
+### Must Have (5 keys):
 ```env
 GUARDIAN_API_KEY=         # 5000/day - Premium source
-VITE_BYTEZ_API_KEY=       # Unlimited - BART AI
+HF_TOKEN=                 # Hugging Face Inference (BART)
+CEREBRAS_API_KEY=         # Cerebras Cloud (LLaMA 3.3)
 GEMINI_API_KEY=           # 60/min - AI fallback
 GROQ_API_KEY=             # Rate limited - AI backup
 ```
@@ -88,7 +89,9 @@ RSS2JSON_API_KEY=         # 10000/day - RSS converter
 ```
 User clicks Summarize
     ↓
-Try BART-large-CNN (unlimited)
+Try Hugging Face (BART-large-CNN)
+    ↓ FAILED?
+Try Cerebras (LLaMA 3.3 70B)
     ↓ FAILED?
 Try Gemini 1.5 Flash (60/min)
     ↓ FAILED?
@@ -97,7 +100,7 @@ Try Groq + LLaMA 3.3 (rate limited)
 Return original content
 ```
 
-**Success Rate**: 99.9%+ (3 fallbacks)
+**Success Rate**: 99.9%+ (4 fallbacks)
 
 ---
 
@@ -111,7 +114,7 @@ Return original content
 | **Uptime** | 99.9%+ |
 | **Cost** | $0/month |
 | **Categories** | 6 specialized |
-| **AI Models** | 3 (BART, Gemini, Groq) |
+| **AI Models** | 4 (Hugging Face, Cerebras, Gemini, Groq) |
 | **Cache TTL** | 2 hours |
 | **Content Age** | < 24 hours |
 
@@ -145,10 +148,11 @@ vercel --prod           # Deploy to production
 4. Try different category
 
 ### AI summary not working?
-1. Check VITE_BYTEZ_API_KEY
-2. Check GEMINI_API_KEY
-3. Check GROQ_API_KEY
-4. Look for console errors
+1. Check HF_TOKEN
+2. Check CEREBRAS_API_KEY
+3. Check GEMINI_API_KEY
+4. Check GROQ_API_KEY
+5. Look for console errors
 
 ### Old articles showing?
 1. Clear browser cache

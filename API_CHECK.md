@@ -104,10 +104,11 @@ CRICKET FALLBACK:
 2. **OMDb** - env var `OMDB_API_KEY` (1000/day)
 
 ### AI/LLM APIs ✅
-1. **Bytez (BART)** - env var `VITE_BYTEZ_API_KEY`
-2. **GROQ** - env var `GROQ_API_KEY`
-3. **Gemini** - env var `GEMINI_API_KEY`
-4. **OpenRouter** - env var `OPENROUTER_API_KEY`
+1. **Hugging Face (BART)** - env var `HF_TOKEN`
+2. **Cerebras (Llama 3.3 70B)** - env var `CEREBRAS_API_KEY`
+3. **GROQ** - env var `GROQ_API_KEY`
+4. **Gemini** - env var `GEMINI_API_KEY`
+5. **OpenRouter** - env var `OPENROUTER_API_KEY`
 
 ---
 

@@ -2,30 +2,34 @@
 
 ## ✅ What Was Done
 
-Added **NVIDIA API** (Bielik 11B model) as the **SECOND FALLBACK** in the LLM enhancement chain.
+Added **NVIDIA API** (Bielik 11B model) as an additional fallback in the LLM enhancement chain.
 
 ---
 
 ## 🎯 Updated LLM Fallback Chain
 
-### Before (3-tier):
+### Before (Hugging Face → Cerebras → Gemini → Groq):
 ```
-1. BART (Bytez) - PRIMARY
-   ↓ (if fails)
-2. Gemini 1.5 Flash - FALLBACK 1
-   ↓ (if fails)
-3. Groq (LLaMA 3.3 70B) - FALLBACK 2
+1. Hugging Face (BART-large-CNN) - PRIMARY
+  ↓ (if fails)
+2. Cerebras (LLaMA 3.3 70B) - FALLBACK 1
+  ↓ (if fails)
+3. Gemini 1.5 Flash - FALLBACK 2
+  ↓ (if fails)
+4. Groq (LLaMA 3.3 70B) - FALLBACK 3
 ```
 
-### After (4-tier):
+### After (with NVIDIA):
 ```
-1. BART (Bytez) - PRIMARY
+1. Hugging Face (BART-large-CNN) - PRIMARY
    ↓ (if fails)
-2. Groq (LLaMA 3.3 70B) - FALLBACK 1
+2. Cerebras (LLaMA 3.3 70B) - FALLBACK 1
    ↓ (if fails)
 3. NVIDIA (Bielik 11B) - FALLBACK 2 ⭐ NEW
    ↓ (if fails)
 4. Gemini 1.5 Flash - FALLBACK 3
+  ↓ (if fails)
+5. Groq (LLaMA 3.3 70B) - FALLBACK 4
 ```
 
 ---

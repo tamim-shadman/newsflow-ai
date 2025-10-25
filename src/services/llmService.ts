@@ -2,9 +2,12 @@ import axios from "axios";
 import type { NewsAPIArticle, EnhancedArticle } from "@/types/news";
 
 const IS_PRODUCTION = import.meta.env.PROD;
-const BYTEZ_ENDPOINT = IS_PRODUCTION
-  ? "/api/bytez"
-  : import.meta.env.VITE_BYTEZ_PROXY_URL || "/api/bytez";
+const HF_SUMMARY_ENDPOINT = IS_PRODUCTION
+  ? "/api/hf-summarize"
+  : import.meta.env.VITE_HF_PROXY_URL || "/api/hf-summarize";
+const CEREBRAS_SUMMARY_ENDPOINT = IS_PRODUCTION
+  ? "/api/cerebras-summarize"
+  : import.meta.env.VITE_CEREBRAS_PROXY_URL || "/api/cerebras-summarize";
 
 const GROQ_DIRECT_URL = "https://api.groq.com/openai/v1/chat/completions";
 const SERVER_LLM_ENDPOINT = IS_PRODUCTION
@@ -13,10 +16,7 @@ const SERVER_LLM_ENDPOINT = IS_PRODUCTION
 const GROQ_API_KEY = import.meta.env.VITE_GROQ_API_KEY || import.meta.env.GROQ_API_KEY || "";
 const GROQ_MODEL = "llama-3.3-70b-versatile";
 
-interface BytezResponse {
-  summary?: string;
-  error?: string;
-}
+type SummaryResponse = { summary?: string; error?: string };
 
 interface GroqMessage {
   role: "system" | "user" | "assistant";
@@ -32,11 +32,9 @@ type LLMResponsePayload = {
   output_text?: string;
 };
 
-async function summarizeWithBytez(prompt: string): Promise<string> {
-  const endpoint = BYTEZ_ENDPOINT;
-
+async function summarizeWithEndpoint(endpoint: string, prompt: string): Promise<string> {
   if (!endpoint) {
-    throw new Error("Bytez endpoint is not configured");
+    throw new Error("Summarization endpoint is not configured");
   }
 
   try {
@@ -48,22 +46,22 @@ async function summarizeWithBytez(prompt: string): Promise<string> {
       body: JSON.stringify({ prompt }),
     });
 
-    let data: BytezResponse | null = null;
+    let data: SummaryResponse | null = null;
 
     try {
       data = await response.json();
     } catch (parseError) {
-      throw new Error("Bytez response could not be parsed as JSON");
+      throw new Error("Summarization response could not be parsed as JSON");
     }
 
     if (!response.ok) {
-      const message = typeof data?.error === "string" ? data.error : `Bytez request failed (${response.status})`;
+      const message = typeof data?.error === "string" ? data.error : `Summarization request failed (${response.status})`;
       throw new Error(message);
     }
 
     const summary = data?.summary?.trim();
     if (!summary) {
-      throw new Error("Bytez response did not include a summary");
+      throw new Error("Summarization response did not include a summary");
     }
 
     return summary;
@@ -73,6 +71,14 @@ async function summarizeWithBytez(prompt: string): Promise<string> {
     }
     throw new Error(String(error));
   }
+}
+
+async function summarizeWithHuggingFace(prompt: string): Promise<string> {
+  return summarizeWithEndpoint(HF_SUMMARY_ENDPOINT, prompt);
+}
+
+async function summarizeWithCerebras(prompt: string): Promise<string> {
+  return summarizeWithEndpoint(CEREBRAS_SUMMARY_ENDPOINT, prompt);
 }
 
 function coerceMessageToString(message?: LLMMessage | string): string | null {
@@ -262,21 +268,27 @@ export async function enhanceArticleWithLLM(
       };
     }
 
-    console.log(`🤖 [PRIMARY] Summarizing with Bytez BART: ${article.title.substring(0, 50)}...`);
+  console.log(`🤖 [PRIMARY] Summarizing with Hugging Face BART: ${article.title.substring(0, 50)}...`);
 
-    // Try Bytez BART first (PRIMARY MODEL - unlimited API)
+    // Try Hugging Face first (PRIMARY MODEL)
     const prompt = `Provide a comprehensive, detailed summary of this news article. Include all key facts, quotes, context, and implications. Write 6-8 complete, well-structured sentences that fully capture the entire story. Use proper paragraph formatting:\n\n${contentToSummarize}`;
 
     let summary: string;
 
     try {
-      summary = await summarizeWithBytez(prompt);
+      summary = await summarizeWithHuggingFace(prompt);
     } catch (primaryError) {
-      console.warn("⚠️ Bytez summarization failed, invoking server LLM pipeline...", primaryError);
-      return await enhanceWithServerLLM(article, contentToSummarize);
+      console.warn("⚠️ Hugging Face summarization failed, trying Cerebras fallback...", primaryError);
+
+      try {
+        summary = await summarizeWithCerebras(prompt);
+      } catch (secondaryError) {
+        console.warn("⚠️ Cerebras summarization failed, invoking server LLM pipeline...", secondaryError);
+        return await enhanceWithServerLLM(article, contentToSummarize);
+      }
     }
 
-    // Bytez returns a clean summary string - format it nicely
+    // Summaries return as clean strings - format them nicely
     summary = summary || article.content || article.description || "Summary unavailable.";
 
     // Clean up and format the summary
@@ -286,7 +298,7 @@ export async function enhanceArticleWithLLM(
       .replace(/\.(?=[A-Z])/g, '. ') // Add space after periods
       .replace(/([.!?])\s*([A-Z])/g, '$1 $2'); // Ensure proper spacing between sentences
 
-    console.log(`✅ Bytez summary generated (${summary.length} chars, ${summary.split(/[.!?]+/).length - 1} sentences): ${summary.substring(0, 60)}...`);
+  console.log(`✅ AI summary generated (${summary.length} chars, ${summary.split(/[.!?]+/).length - 1} sentences): ${summary.substring(0, 60)}...`);
 
     // Extract key points from the summary (simple sentence splitting)
     const keyPoints = summary
@@ -304,7 +316,7 @@ export async function enhanceArticleWithLLM(
       keyPoints: keyPoints,
     };
   } catch (error) {
-    console.error("❌ Bytez runtime error, invoking server LLM fallback:", error);
+    console.error("❌ Primary summarization failed, invoking server LLM fallback:", error);
 
     // Build content for fallback
     const contentToSummarize = [
@@ -348,7 +360,7 @@ export async function enhanceArticlesBatch(
   // Enhance articles
   const articlesToEnhance = articles.slice(0, limit);
 
-  console.log(`🚀 Bytez BART batch processing: ${articlesToEnhance.length} articles`);
+  console.log(`🚀 Hugging Face batch processing: ${articlesToEnhance.length} articles`);
 
   // Process in parallel since we have unlimited API access
   const promises = articlesToEnhance.map(async (article) => {
@@ -370,7 +382,7 @@ export async function enhanceArticlesBatch(
     }
   });
 
-  console.log(`✅ Bytez enhanced ${enhancedMap.size}/${articlesToEnhance.length} articles`);
+  console.log(`✅ AI enhanced ${enhancedMap.size}/${articlesToEnhance.length} articles`);
 
   return enhancedMap;
 }
@@ -392,11 +404,18 @@ export async function generateNewsDigest(
       .map((a) => a.title)
       .join(". ");
 
-    console.log(`📰 Generating ${category} digest with Bytez BART...`);
+    console.log(`📰 Generating ${category} digest with Hugging Face...`);
 
     const digestPrompt = `Provide a comprehensive overview of these ${category} news headlines. Write 4-5 detailed sentences covering the major themes and stories: ${combinedText}`;
 
-    const output = await summarizeWithBytez(digestPrompt);
+    let output: string;
+
+    try {
+      output = await summarizeWithHuggingFace(digestPrompt);
+    } catch (primaryError) {
+      console.warn("⚠️ Hugging Face digest failed, trying Cerebras...", primaryError);
+      output = await summarizeWithCerebras(digestPrompt);
+    }
 
     console.log(`✅ Digest generated for ${category}`);
     return output || `Latest updates in ${category} news.`;
