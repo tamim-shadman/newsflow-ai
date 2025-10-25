@@ -1,4 +1,4 @@
-const CACHE_NAME = 'newsflow-ai-v1';
+const CACHE_NAME = 'newsflow-ai-v2';
 const STATIC_ASSETS = [
   '/',
   '/index.html',
