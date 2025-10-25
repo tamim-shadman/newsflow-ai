@@ -22,6 +22,8 @@ export default async function handler(req, res) {
   const { category = 'general', pageSize = 20, language = 'en' } = req.query;
 
   try {
+    console.log(`[API] Starting news fetch for category: ${category}, pageSize: ${pageSize}`);
+    
     const normalizedCategory = typeof category === 'string' ? category.toLowerCase() : 'general';
     const chain = new FallbackChain({
       category: normalizedCategory,
@@ -31,18 +33,24 @@ export default async function handler(req, res) {
 
     const articles = await chain.execute();
 
+    console.log(`[API] Successfully fetched ${articles.length} articles for ${normalizedCategory}`);
+
     res.status(200).json({
       status: 'ok',
       totalResults: articles.length,
       articles,
     });
   } catch (error) {
-    console.error('News aggregation error:', error);
+    console.error('[API] News aggregation error:', error);
+    console.error('[API] Error stack:', error.stack);
+    console.error('[API] Error details:', error.details);
+    
     res.status(500).json({
       status: 'error',
       message: 'Failed to fetch news',
       error: error.message,
       details: error.details || [],
+      stack: process.env.NODE_ENV === 'development' ? error.stack : undefined,
     });
   }
 }

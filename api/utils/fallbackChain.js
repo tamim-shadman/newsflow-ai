@@ -1,14 +1,20 @@
 import axios from "axios";
 import Parser from "rss-parser";
 
+console.log('[FallbackChain] Module loaded successfully');
+console.log('[FallbackChain] axios:', typeof axios);
+console.log('[FallbackChain] Parser:', typeof Parser);
+
 const DEFAULT_IMAGE = "https://images.unsplash.com/photo-1504711434969-e33886168f5c?w=800&h=600&fit=crop";
 
 const rssParser = new Parser({
-  timeout: 10000,
+  timeout: 5000, // Reduced from 10000 to prevent Vercel timeout
   headers: {
     "User-Agent": "newsflow-ai/1.0 (+https://newsflow-ai.com)",
   },
 });
+
+console.log('[FallbackChain] rssParser initialized:', typeof rssParser);
 
 const API_KEYS = {
   guardian: process.env.GUARDIAN_API_KEY,
@@ -83,7 +89,7 @@ async function fetchJson(url, params = {}, options = {}) {
   try {
     const response = await axios.get(url, {
       params,
-      timeout: options.timeout || 8000,
+      timeout: options.timeout || 5000, // Reduced from 8000
       headers: options.headers,
       validateStatus: (status) => status < 500, // Don't throw on 4xx errors
     });
@@ -239,10 +245,17 @@ const REUTERS_WORLD_RSS = "https://feeds.reuters.com/reuters/worldNews";
 
 export class FallbackChain {
   constructor({ category = "general", pageSize = 20, language = "en" } = {}) {
+    console.log('[FallbackChain] Constructor called with:', { category, pageSize, language });
     this.category = category;
     this.pageSize = pageSize;
     this.language = language;
-    this.providers = this.defineProvidersForCategory(category);
+    try {
+      this.providers = this.defineProvidersForCategory(category);
+      console.log('[FallbackChain] Providers defined:', this.providers.length);
+    } catch (error) {
+      console.error('[FallbackChain] Error defining providers:', error);
+      throw error;
+    }
   }
 
   defineProvidersForCategory(category) {
@@ -357,11 +370,14 @@ export class FallbackChain {
   }
 
   async execute() {
+    console.log(`[FallbackChain] Execute started for ${this.category}`);
     const errors = [];
     const collected = [];
 
     const unlimited = this.providers.filter(provider => provider.tier === "unlimited");
     const limited = this.providers.filter(provider => provider.tier !== "unlimited");
+
+    console.log(`[FallbackChain] Found ${unlimited.length} unlimited, ${limited.length} limited providers`);
 
     await this.collectProviders(unlimited, collected, errors);
 
@@ -369,7 +385,10 @@ export class FallbackChain {
       await this.collectProviders(limited, collected, errors);
     }
 
+    console.log(`[FallbackChain] Collected ${collected.length} articles total`);
+
     if (collected.length === 0) {
+      console.error('[FallbackChain] No articles collected, errors:', errors);
       const err = new Error(`All providers failed for category ${this.category}`);
       err.details = errors;
       throw err;
@@ -378,13 +397,16 @@ export class FallbackChain {
     const deduped = dedupeArticles(collected, this.pageSize * 2);
     const blended = blendArticlesBySource(deduped, this.pageSize);
 
+    console.log(`[FallbackChain] Returning ${blended.length} articles after dedup/blend`);
     return blended;
   }
 
   async collectProviders(steps, collected, errors) {
     let sourcesCollected = 0;
-    const minSources = 3; // Collect from at least 3 sources for variety
-    const targetArticles = this.pageSize * 3; // Collect more to ensure enough after blending
+    const minSources = 2; // Reduced from 3 for faster execution
+    const targetArticles = this.pageSize * 2; // Reduced from 3x for faster execution
+
+    console.log(`[collectProviders] Starting with ${steps.length} providers, target: ${targetArticles} articles from ${minSources} sources`);
 
     for (const step of steps) {
       if (step.tier !== "unlimited" && !usageQuotaAvailable(step.name)) {
@@ -393,25 +415,35 @@ export class FallbackChain {
 
       // Stop only if we have enough articles AND variety
       if (collected.length >= targetArticles && sourcesCollected >= minSources) {
+        console.log(`[collectProviders] Stopping early: ${collected.length} articles from ${sourcesCollected} sources`);
         break;
       }
 
       try {
+        console.log(`[collectProviders] Trying ${step.name}...`);
+        const startTime = Date.now();
         const items = await step.handler();
+        const elapsed = Date.now() - startTime;
         const normalized = dedupeArticles((items || []).filter(Boolean), this.pageSize * 3);
         
         if (normalized.length > 0) {
+          console.log(`[collectProviders] ${step.name} returned ${normalized.length} articles in ${elapsed}ms`);
           if (step.tier !== "unlimited") {
             bumpUsage(step.name);
           }
           collected.push(...normalized);
           sourcesCollected++;
+        } else {
+          console.log(`[collectProviders] ${step.name} returned 0 articles`);
         }
       } catch (error) {
+        console.error(`[collectProviders] ${step.name} failed:`, error.message);
         // Silently skip failed providers - we have many fallbacks
         continue;
       }
     }
+
+    console.log(`[collectProviders] Finished: ${collected.length} articles from ${sourcesCollected} sources`);
   }
 
   async fetchGuardian() {
