@@ -1,4 +1,4 @@
-import { FallbackChain } from "./utils/fallbackChain";
+import { FallbackChain } from "./utils/fallbackChain.js";
 
 // Static fallback data in case everything fails
 const EMERGENCY_FALLBACK = [
