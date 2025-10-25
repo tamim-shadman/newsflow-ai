@@ -1,13 +1,10 @@
-import Bytez from "bytez.js";
 import axios from "axios";
 import type { NewsAPIArticle, EnhancedArticle } from "@/types/news";
 
 const IS_PRODUCTION = import.meta.env.PROD;
-
-// Initialize Bytez SDK only when a key is configured
-const BYTEZ_API_KEY = import.meta.env.VITE_BYTEZ_API_KEY || import.meta.env.BYTEZ_API_KEY;
-const sdk = BYTEZ_API_KEY ? new Bytez(BYTEZ_API_KEY) : null;
-const bartModel = sdk ? sdk.model("facebook/bart-large-cnn") : null;
+const BYTEZ_ENDPOINT = IS_PRODUCTION
+  ? "/api/bytez"
+  : import.meta.env.VITE_BYTEZ_PROXY_URL || "/api/bytez";
 
 const GROQ_DIRECT_URL = "https://api.groq.com/openai/v1/chat/completions";
 const SERVER_LLM_ENDPOINT = IS_PRODUCTION
@@ -15,6 +12,11 @@ const SERVER_LLM_ENDPOINT = IS_PRODUCTION
   : import.meta.env.VITE_LLM_PROXY_URL || "/api/chat";
 const GROQ_API_KEY = import.meta.env.VITE_GROQ_API_KEY || import.meta.env.GROQ_API_KEY || "";
 const GROQ_MODEL = "llama-3.3-70b-versatile";
+
+interface BytezResponse {
+  summary?: string;
+  error?: string;
+}
 
 interface GroqMessage {
   role: "system" | "user" | "assistant";
@@ -29,6 +31,49 @@ type LLMResponsePayload = {
   text?: string;
   output_text?: string;
 };
+
+async function summarizeWithBytez(prompt: string): Promise<string> {
+  const endpoint = BYTEZ_ENDPOINT;
+
+  if (!endpoint) {
+    throw new Error("Bytez endpoint is not configured");
+  }
+
+  try {
+    const response = await fetch(endpoint, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({ prompt }),
+    });
+
+    let data: BytezResponse | null = null;
+
+    try {
+      data = await response.json();
+    } catch (parseError) {
+      throw new Error("Bytez response could not be parsed as JSON");
+    }
+
+    if (!response.ok) {
+      const message = typeof data?.error === "string" ? data.error : `Bytez request failed (${response.status})`;
+      throw new Error(message);
+    }
+
+    const summary = data?.summary?.trim();
+    if (!summary) {
+      throw new Error("Bytez response did not include a summary");
+    }
+
+    return summary;
+  } catch (error) {
+    if (error instanceof Error) {
+      throw error;
+    }
+    throw new Error(String(error));
+  }
+}
 
 function coerceMessageToString(message?: LLMMessage | string): string | null {
   if (!message) return null;
@@ -142,7 +187,23 @@ Provide JSON response:
         jsonContent = jsonMatch[1];
       }
 
-      const enhanced = JSON.parse(jsonContent.trim());
+      let enhanced: { summary?: string; keyPoints?: string[] };
+      try {
+        enhanced = JSON.parse(jsonContent.trim());
+      } catch (parseError) {
+        console.warn("⚠️ LLM returned non-JSON content, using raw summary fallback.", parseError);
+
+        const fallbackSummary = content.trim() || article.content || article.description || "Summary unavailable.";
+
+        return {
+          originalTitle: article.title,
+          enhancedTitle: article.title,
+          originalExcerpt: article.description || "",
+          enhancedExcerpt: article.description || fallbackSummary.substring(0, 150),
+          summary: fallbackSummary,
+          keyPoints: [],
+        };
+      }
 
       console.log(`✅ LLM summary generated via ${endpoint.url.includes("api/chat") ? "server" : "direct Groq"}: ${
         (enhanced.summary || "").substring(0, 60)
@@ -201,26 +262,23 @@ export async function enhanceArticleWithLLM(
       };
     }
 
-    if (!bartModel) {
-      console.warn("⚠️ BART model not configured, using server LLM fallback.");
-      return await enhanceWithServerLLM(article, contentToSummarize);
-    }
+    console.log(`🤖 [PRIMARY] Summarizing with Bytez BART: ${article.title.substring(0, 50)}...`);
 
-    console.log(`🤖 [PRIMARY] Summarizing with BART: ${article.title.substring(0, 50)}...`);
-
-    // Try BART first (PRIMARY MODEL - unlimited API)
+    // Try Bytez BART first (PRIMARY MODEL - unlimited API)
     const prompt = `Provide a comprehensive, detailed summary of this news article. Include all key facts, quotes, context, and implications. Write 6-8 complete, well-structured sentences that fully capture the entire story. Use proper paragraph formatting:\n\n${contentToSummarize}`;
-    
-    const { error, output } = await bartModel.run(prompt);
 
-    if (error) {
-      console.warn("⚠️ BART failed, invoking server LLM pipeline...", error);
+    let summary: string;
+
+    try {
+      summary = await summarizeWithBytez(prompt);
+    } catch (primaryError) {
+      console.warn("⚠️ Bytez summarization failed, invoking server LLM pipeline...", primaryError);
       return await enhanceWithServerLLM(article, contentToSummarize);
     }
 
-    // BART returns a clean summary string - format it nicely
-    let summary = output || article.content || article.description || "Summary unavailable.";
-    
+    // Bytez returns a clean summary string - format it nicely
+    summary = summary || article.content || article.description || "Summary unavailable.";
+
     // Clean up and format the summary
     summary = summary
       .trim()
@@ -228,7 +286,7 @@ export async function enhanceArticleWithLLM(
       .replace(/\.(?=[A-Z])/g, '. ') // Add space after periods
       .replace(/([.!?])\s*([A-Z])/g, '$1 $2'); // Ensure proper spacing between sentences
 
-    console.log(`✅ BART summary generated (${summary.length} chars, ${summary.split(/[.!?]+/).length - 1} sentences): ${summary.substring(0, 60)}...`);
+    console.log(`✅ Bytez summary generated (${summary.length} chars, ${summary.split(/[.!?]+/).length - 1} sentences): ${summary.substring(0, 60)}...`);
 
     // Extract key points from the summary (simple sentence splitting)
     const keyPoints = summary
@@ -246,7 +304,7 @@ export async function enhanceArticleWithLLM(
       keyPoints: keyPoints,
     };
   } catch (error) {
-    console.error("❌ BART runtime error, invoking server LLM fallback:", error);
+    console.error("❌ Bytez runtime error, invoking server LLM fallback:", error);
 
     // Build content for fallback
     const contentToSummarize = [
@@ -290,7 +348,7 @@ export async function enhanceArticlesBatch(
   // Enhance articles
   const articlesToEnhance = articles.slice(0, limit);
 
-  console.log(`🚀 BART batch processing: ${articlesToEnhance.length} articles`);
+  console.log(`🚀 Bytez BART batch processing: ${articlesToEnhance.length} articles`);
 
   // Process in parallel since we have unlimited API access
   const promises = articlesToEnhance.map(async (article) => {
@@ -312,7 +370,7 @@ export async function enhanceArticlesBatch(
     }
   });
 
-  console.log(`✅ BART enhanced ${enhancedMap.size}/${articlesToEnhance.length} articles`);
+  console.log(`✅ Bytez enhanced ${enhancedMap.size}/${articlesToEnhance.length} articles`);
 
   return enhancedMap;
 }
@@ -334,15 +392,11 @@ export async function generateNewsDigest(
       .map((a) => a.title)
       .join(". ");
 
-    console.log(`📰 Generating ${category} digest with BART...`);
+    console.log(`📰 Generating ${category} digest with Bytez BART...`);
 
-    const { error, output } = await bartModel.run(
-      `Provide a comprehensive overview of these ${category} news headlines. Write 4-5 detailed sentences covering the major themes and stories: ${combinedText}`
-    );
+    const digestPrompt = `Provide a comprehensive overview of these ${category} news headlines. Write 4-5 detailed sentences covering the major themes and stories: ${combinedText}`;
 
-    if (error) {
-      throw new Error(error);
-    }
+    const output = await summarizeWithBytez(digestPrompt);
 
     console.log(`✅ Digest generated for ${category}`);
     return output || `Latest updates in ${category} news.`;

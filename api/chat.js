@@ -209,6 +209,14 @@ export default async function handler(req, res) {
   // All providers failed — respond gracefully with a deterministic fallback so UI never errors.
   console.error('❌ All LLM providers failed, returning fallback content');
 
+  const fallbackPayload = {
+    summary: 'AI summary is temporarily unavailable. Latest headlines remain accessible, and you can retry shortly.',
+    keyPoints: [
+      'Open the full article to read the latest coverage.',
+      'Retry in a moment to receive an automated summary.'
+    ]
+  };
+
   const fallbackSummary = {
     choices: [
       {
@@ -216,8 +224,7 @@ export default async function handler(req, res) {
         finish_reason: 'fallback',
         message: {
           role: 'assistant',
-          content:
-            'AI summary is temporarily unavailable. Latest headlines remain accessible, and you can retry shortly.'
+          content: JSON.stringify(fallbackPayload)
         }
       }
     ],
