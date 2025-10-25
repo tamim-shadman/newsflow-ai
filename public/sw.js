@@ -46,6 +46,10 @@ self.addEventListener('fetch', event => {
   const { request } = event;
   const url = new URL(request.url);
 
+  if (!url.protocol.startsWith('http')) {
+    return;
+  }
+
   // Network first strategy for API calls (always get fresh news)
   if (url.pathname.startsWith('/api/')) {
     event.respondWith(

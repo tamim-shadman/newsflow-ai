@@ -1,6 +1,14 @@
 import axios from "axios";
+import Parser from "rss-parser";
 
 const DEFAULT_IMAGE = "https://images.unsplash.com/photo-1504711434969-e33886168f5c?w=800&h=600&fit=crop";
+
+const rssParser = new Parser({
+  timeout: 10000,
+  headers: {
+    "User-Agent": "newsflow-ai/1.0 (+https://newsflow-ai.com)",
+  },
+});
 
 const API_KEYS = {
   guardian: process.env.GUARDIAN_API_KEY,
@@ -81,20 +89,13 @@ async function fetchJson(url, params = {}, options = {}) {
 }
 
 async function fetchRssFeed(feedUrl) {
-  const params = { rss_url: feedUrl };
-  if (API_KEYS.rss2json) {
-    params.api_key = API_KEYS.rss2json;
-  }
-
-  const data = await fetchJson("https://api.rss2json.com/v1/api.json", params, {
-    timeout: 10000,
-  });
-
-  if (!data || !data.items) {
+  try {
+    const feed = await rssParser.parseURL(feedUrl);
+    return Array.isArray(feed?.items) ? feed.items : [];
+  } catch (error) {
+    console.warn(`RSS fetch failed for ${feedUrl}`, error);
     return [];
   }
-
-  return data.items;
 }
 
 function dedupeArticles(articles, pageSize) {
