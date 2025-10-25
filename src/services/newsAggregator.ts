@@ -92,10 +92,17 @@ async function fetchRSSFeed(rssUrl: string, limit: number): Promise<RSSFeedItem[
     const response = await axios.get(RSS2JSON_ENDPOINT, {
       params,
       timeout: 8000,
+      validateStatus: (status) => status < 500, // Don't throw on 4xx errors
     });
+    
+    // Return empty for 4xx errors
+    if (response.status >= 400) {
+      return [];
+    }
+    
     return Array.isArray(response.data?.items) ? response.data.items : [];
   } catch (error) {
-    console.warn(`⚠️ RSS fetch failed (${rssUrl})`, error);
+    // Silently fail for RSS feeds - they're optional unlimited sources
     return [];
   }
 }
@@ -118,34 +125,45 @@ function dedupeArticles(articles: NewsAPIArticle[]): NewsAPIArticle[] {
 function blendArticlesBySource(
   articles: NewsAPIArticle[],
   pageSize: number,
-  maxPerSource: number = Math.max(2, Math.ceil(pageSize / 4))
+  maxPerSource: number = Math.max(5, Math.ceil(pageSize * 0.5))
 ): NewsAPIArticle[] {
   const groups = new Map<string, NewsAPIArticle[]>();
 
-  articles
+  // Sort by publish date first
+  const sorted = articles
     .slice()
     .sort((a, b) => {
       const aTime = a.publishedAt ? new Date(a.publishedAt).getTime() : 0;
       const bTime = b.publishedAt ? new Date(b.publishedAt).getTime() : 0;
       return bTime - aTime;
-    })
-    .forEach(article => {
-      const sourceName = article.source?.name || "Unknown";
-      const list = groups.get(sourceName) || [];
-      if (list.length >= maxPerSource) return;
-      list.push(article);
-      groups.set(sourceName, list);
     });
 
-  const orderedGroups = Array.from(groups.values());
+  // Group by source
+  sorted.forEach(article => {
+    const sourceName = article.source?.name || "Unknown";
+    if (!groups.has(sourceName)) {
+      groups.set(sourceName, []);
+    }
+    groups.get(sourceName)!.push(article);
+  });
+
+  // Limit articles per source to ensure variety (max 50% from any single source)
+  for (const [source, group] of groups.entries()) {
+    if (group.length > maxPerSource) {
+      groups.set(source, group.slice(0, maxPerSource));
+    }
+  }
+
+  // Round-robin distribution from all sources
+  const orderedGroups = Array.from(groups.values()).filter(g => g.length > 0);
   const result: NewsAPIArticle[] = [];
   let index = 0;
 
   while (result.length < pageSize && orderedGroups.length > 0) {
-    const group = orderedGroups[index % orderedGroups.length];
+    const group = orderedGroups[index];
     if (!group || group.length === 0) {
-      orderedGroups.splice(index % orderedGroups.length, 1);
-      index = 0;
+      orderedGroups.splice(index, 1);
+      if (index >= orderedGroups.length) index = 0;
       continue;
     }
 
@@ -155,10 +173,10 @@ function blendArticlesBySource(
     }
 
     if (group.length === 0) {
-      orderedGroups.splice(index % orderedGroups.length, 1);
-      index = 0;
+      orderedGroups.splice(index, 1);
+      if (index >= orderedGroups.length) index = 0;
     } else {
-      index += 1;
+      index = (index + 1) % orderedGroups.length;
     }
   }
 
@@ -910,22 +928,25 @@ async function collectFromProviders(
     return;
   }
 
-  const baseLimit = Math.max(3, Math.ceil((pageSize + 6) / providers.length));
+  const minSources = 3; // Collect from at least 3 sources for variety
+  const targetArticles = pageSize * 3; // Collect more to ensure enough after blending
+  let sourcesCollected = 0;
 
   for (const provider of providers) {
-    const remaining = pageSize + 8 - accumulator.length;
-    if (remaining <= 0) break;
-
-    const limit = Math.max(baseLimit, Math.ceil(remaining / 2));
+    // Stop only if we have enough articles AND variety
+    if (accumulator.length >= targetArticles && sourcesCollected >= minSources) {
+      break;
+    }
 
     try {
-      const articles = await tryAPI(provider.name, normalizedCategory, limit, provider.options);
+      const articles = await tryAPI(provider.name, normalizedCategory, pageSize, provider.options);
       if (articles.length > 0) {
         accumulator.push(...articles);
+        sourcesCollected++;
       }
     } catch (error) {
-      const message = error instanceof Error ? error.message : String(error);
-      console.warn(`⚠️ ${provider.name} failed for ${category}: ${message}`);
+      // Silently skip failed providers - we have many fallbacks
+      continue;
     }
   }
 }
@@ -940,24 +961,25 @@ async function tryAPI(
   pageSize: number,
   options: Record<string, unknown> = {}
 ): Promise<NewsAPIArticle[]> {
-  switch (apiName) {
-    // Existing aggregator APIs
-    case 'guardian':
-      return await tryGuardianAPI(cat, pageSize);
-    case 'currents':
-      return await tryCurrentsAPI(cat, pageSize);
-    case 'gnews':
-      return await tryGNewsAPI(cat, pageSize);
-    case 'newsdata':
-      return await tryNewsDataAPI(cat, pageSize);
-    case 'saurav':
-      return await trySauravAPI(cat, pageSize);
-    
-    // Technology APIs
-    case 'hackernews':
-      return await tryHackerNewsAPI(pageSize);
-    case 'devto':
-      return await tryDevToAPI(pageSize);
+  try {
+    switch (apiName) {
+      // Existing aggregator APIs
+      case 'guardian':
+        return await tryGuardianAPI(cat, pageSize);
+      case 'currents':
+        return await tryCurrentsAPI(cat, pageSize);
+      case 'gnews':
+        return await tryGNewsAPI(cat, pageSize);
+      case 'newsdata':
+        return await tryNewsDataAPI(cat, pageSize);
+      case 'saurav':
+        return await trySauravAPI(cat, pageSize);
+      
+      // Technology APIs
+      case 'hackernews':
+        return await tryHackerNewsAPI(pageSize);
+      case 'devto':
+        return await tryDevToAPI(pageSize);
     case 'github-trending':
       return await tryGitHubTrendingAPI(pageSize);
     case 'lobsters':
@@ -1066,6 +1088,10 @@ async function tryAPI(
     default:
       console.warn(`⚠️ Unknown API: ${apiName}`);
       return [];
+    }
+  } catch (error) {
+    // Silently handle all provider errors - we have many fallbacks
+    return [];
   }
 }
 

@@ -1337,8 +1337,8 @@ const Index = () => {
                             avoidCollisions={true}
                             collisionPadding={16}
                           >
-                            <div className={`absolute inset-0 bg-gradient-to-br ${articleTheme.accent} opacity-25`} />
-                            <div className="absolute inset-0 bg-black/80" />
+                            <div className={`absolute inset-0 bg-gradient-to-br ${articleTheme.accent} opacity-25 pointer-events-none`} />
+                            <div className="absolute inset-0 bg-black/80 pointer-events-none" />
                             <button
                               type="button"
                               onClick={(e) => {
@@ -1347,10 +1347,10 @@ const Index = () => {
                                 setLoadingSummary((prev) => (prev === article.url ? null : prev));
                                 cancelSummaryLongPress();
                               }}
-                              className="absolute top-4 right-4 flex h-9 w-9 items-center justify-center rounded-full border border-white/15 bg-black/40 text-white transition-all hover:bg-white/10 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white/40"
+                              className="absolute top-4 right-4 z-50 flex h-9 w-9 items-center justify-center rounded-full border border-white/15 bg-black/40 text-white transition-all hover:bg-white/10 hover:scale-110 active:scale-95 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white/40 cursor-pointer"
                               aria-label="Close summary"
                             >
-                              <X className="w-4 h-4" />
+                              <X className="w-4 h-4 pointer-events-none" />
                             </button>
                             <div className="relative z-10 flex h-full flex-col space-y-4">
                               <div className="flex items-start justify-between gap-3 border-b border-white/10 pb-4">

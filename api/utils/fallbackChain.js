@@ -80,12 +80,24 @@ function createArticle({
 }
 
 async function fetchJson(url, params = {}, options = {}) {
-  const response = await axios.get(url, {
-    params,
-    timeout: options.timeout || 8000,
-    headers: options.headers,
-  });
-  return response.data;
+  try {
+    const response = await axios.get(url, {
+      params,
+      timeout: options.timeout || 8000,
+      headers: options.headers,
+      validateStatus: (status) => status < 500, // Don't throw on 4xx errors
+    });
+    
+    // Return empty data for 4xx errors
+    if (response.status >= 400) {
+      return null;
+    }
+    
+    return response.data;
+  } catch (error) {
+    // Silently handle network errors
+    return null;
+  }
 }
 
 async function fetchRssFeed(feedUrl) {
@@ -93,7 +105,7 @@ async function fetchRssFeed(feedUrl) {
     const feed = await rssParser.parseURL(feedUrl);
     return Array.isArray(feed?.items) ? feed.items : [];
   } catch (error) {
-    console.warn(`RSS fetch failed for ${feedUrl}`, error);
+    // Silently fail for RSS feeds - they're optional unlimited sources
     return [];
   }
 }
@@ -121,37 +133,48 @@ function dedupeArticles(articles, pageSize) {
 function blendArticlesBySource(articles, pageSize) {
   const buckets = new Map();
 
+  // Group articles by source
   articles.forEach(article => {
     if (!article) return;
     const sourceName = article.source?.name || 'Unknown';
     if (!buckets.has(sourceName)) {
       buckets.set(sourceName, []);
     }
-    const bucket = buckets.get(sourceName);
-    if (bucket.length < Math.max(2, Math.ceil(pageSize / 4))) {
-      bucket.push(article);
-    }
+    buckets.get(sourceName).push(article);
   });
 
-  const queue = Array.from(buckets.values());
+  // Calculate max articles per source to ensure variety
+  // Allow up to 50% of pageSize from any single source (increased from 40%)
+  const maxPerSource = Math.max(5, Math.ceil(pageSize * 0.5));
+  
+  // Trim each bucket to maxPerSource
+  for (const [source, bucket] of buckets.entries()) {
+    if (bucket.length > maxPerSource) {
+      buckets.set(source, bucket.slice(0, maxPerSource));
+    }
+  }
+
+  // Round-robin distribution from all sources
+  const queue = Array.from(buckets.values()).filter(b => b.length > 0);
   const result = [];
+  let currentIndex = 0;
 
   while (result.length < pageSize && queue.length > 0) {
-    for (let i = 0; i < queue.length && result.length < pageSize; i += 1) {
-      const bucket = queue[i];
-      if (!bucket.length) {
-        queue.splice(i, 1);
-        i -= 1;
-        continue;
-      }
-      const article = bucket.shift();
-      if (article) {
-        result.push(article);
-      }
-      if (!bucket.length) {
-        queue.splice(i, 1);
-        i -= 1;
-      }
+    const bucket = queue[currentIndex];
+    if (bucket && bucket.length > 0) {
+      result.push(bucket.shift());
+    }
+    
+    // Remove empty buckets
+    if (!bucket || bucket.length === 0) {
+      queue.splice(currentIndex, 1);
+    } else {
+      currentIndex = (currentIndex + 1) % queue.length;
+    }
+    
+    // Reset index if we've gone through all buckets
+    if (currentIndex >= queue.length) {
+      currentIndex = 0;
     }
   }
 
@@ -346,50 +369,54 @@ export class FallbackChain {
       await this.collectProviders(limited, collected, errors);
     }
 
+    if (collected.length === 0) {
+      const err = new Error(`All providers failed for category ${this.category}`);
+      err.details = errors;
+      throw err;
+    }
+
     const deduped = dedupeArticles(collected, this.pageSize * 2);
     const blended = blendArticlesBySource(deduped, this.pageSize);
 
-    if (blended.length > 0) {
-      return blended;
-    }
-
-    const err = new Error(`All providers failed for category ${this.category}`);
-    err.details = errors;
-    throw err;
+    return blended;
   }
 
   async collectProviders(steps, collected, errors) {
+    let sourcesCollected = 0;
+    const minSources = 3; // Collect from at least 3 sources for variety
+    const targetArticles = this.pageSize * 3; // Collect more to ensure enough after blending
+
     for (const step of steps) {
       if (step.tier !== "unlimited" && !usageQuotaAvailable(step.name)) {
-        errors.push(`${step.name} quota exhausted`);
-        continue;
+        continue; // Silently skip quota-exhausted providers
+      }
+
+      // Stop only if we have enough articles AND variety
+      if (collected.length >= targetArticles && sourcesCollected >= minSources) {
+        break;
       }
 
       try {
         const items = await step.handler();
-        const normalized = dedupeArticles((items || []).filter(Boolean), this.pageSize * 2);
+        const normalized = dedupeArticles((items || []).filter(Boolean), this.pageSize * 3);
+        
         if (normalized.length > 0) {
           if (step.tier !== "unlimited") {
             bumpUsage(step.name);
           }
           collected.push(...normalized);
-        } else {
-          errors.push(`${step.name} returned no articles`);
+          sourcesCollected++;
         }
       } catch (error) {
-        const message = error instanceof Error ? error.message : String(error);
-        errors.push(`${step.name} failed: ${message}`);
-      }
-
-      if (collected.length >= this.pageSize * 2) {
-        break;
+        // Silently skip failed providers - we have many fallbacks
+        continue;
       }
     }
   }
 
   async fetchGuardian() {
     if (!API_KEYS.guardian) return [];
-
+    
     const section = GUARDIAN_SECTION_MAP[this.category] || "news";
     const data = await fetchJson("https://content.guardianapis.com/search", {
       section,
@@ -399,22 +426,25 @@ export class FallbackChain {
       orderBy: "newest",
     });
 
-    const results = data?.response?.results || [];
-    return results.map((item) =>
-      createArticle({
-        sourceId: "guardian",
-        sourceName: "The Guardian",
-        author: item.fields?.byline,
-        title: item.webTitle,
-        description: item.fields?.trailText,
-        url: item.webUrl,
-        urlToImage: item.fields?.thumbnail,
-        publishedAt: item.webPublicationDate,
-        content: item.fields?.body,
-      })
-    );
-  }
+    if (!data?.response?.results) return [];
 
+    const results = data.response.results;
+    return results
+      .map((item) =>
+        createArticle({
+          sourceId: "guardian",
+          sourceName: "The Guardian",
+          author: item.fields?.byline,
+          title: item.webTitle,
+          description: item.fields?.trailText,
+          url: item.webUrl,
+          urlToImage: item.fields?.thumbnail,
+          publishedAt: item.webPublicationDate,
+          content: item.fields?.body,
+        })
+      )
+      .filter(Boolean);
+  }
   async fetchHackerNews() {
     const ids = await fetchJson("https://hacker-news.firebaseio.com/v0/topstories.json");
     if (!Array.isArray(ids)) return [];
@@ -630,20 +660,24 @@ export class FallbackChain {
       limit: 50,
     });
 
-    const articles = data?.articles || [];
-    return articles.map((item) =>
-      createArticle({
-        sourceId: "espn",
-        sourceName: "ESPN",
-        author: item.byline,
-        title: item.headline,
-        description: item.description,
-        url: item.links?.web?.href,
-        urlToImage: item.images?.[0]?.url,
-        publishedAt: item.published,
-        content: item.description,
-      })
-    );
+    if (!data?.articles) return [];
+
+    const articles = data.articles;
+    return articles
+      .map((item) =>
+        createArticle({
+          sourceId: "espn",
+          sourceName: "ESPN",
+          author: item.byline,
+          title: item.headline,
+          description: item.description,
+          url: item.links?.web?.href,
+          urlToImage: item.images?.[0]?.url,
+          publishedAt: item.published,
+          content: item.description,
+        })
+      )
+      .filter(Boolean);
   }
 
   async fetchGoal() {
