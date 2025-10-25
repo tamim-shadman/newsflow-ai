@@ -7,6 +7,78 @@ console.log('[FallbackChain] Parser:', typeof Parser);
 
 const DEFAULT_IMAGE = "https://images.unsplash.com/photo-1504711434969-e33886168f5c?w=800&h=600&fit=crop";
 
+// Smart fallback image system - returns different images based on category and article hash
+const FALLBACK_IMAGES = {
+  technology: [
+    "https://images.unsplash.com/photo-1518770660439-4636190af475?w=800&h=600&fit=crop",
+    "https://images.unsplash.com/photo-1461749280684-dccba630e2f6?w=800&h=600&fit=crop",
+    "https://images.unsplash.com/photo-1488590528505-98d2b5aba04b?w=800&h=600&fit=crop",
+    "https://images.unsplash.com/photo-1550745165-9bc0b252726f?w=800&h=600&fit=crop",
+    "https://images.unsplash.com/photo-1526374965328-7f61d4dc18c5?w=800&h=600&fit=crop",
+  ],
+  sports: [
+    "https://images.unsplash.com/photo-1461896836934-ffe607ba8211?w=800&h=600&fit=crop",
+    "https://images.unsplash.com/photo-1522778119026-d647f0596c20?w=800&h=600&fit=crop",
+    "https://images.unsplash.com/photo-1579952363873-27f3bade9f55?w=800&h=600&fit=crop",
+    "https://images.unsplash.com/photo-1517649763962-0c623066013b?w=800&h=600&fit=crop",
+    "https://images.unsplash.com/photo-1574629810360-7efbbe195018?w=800&h=600&fit=crop",
+  ],
+  business: [
+    "https://images.unsplash.com/photo-1611974789855-9c2a0a7236a3?w=800&h=600&fit=crop",
+    "https://images.unsplash.com/photo-1590283603385-17ffb3a7f29f?w=800&h=600&fit=crop",
+    "https://images.unsplash.com/photo-1460925895917-afdab827c52f?w=800&h=600&fit=crop",
+    "https://images.unsplash.com/photo-1554224155-8d04cb21cd6c?w=800&h=600&fit=crop",
+    "https://images.unsplash.com/photo-1507679799987-c73779587ccf?w=800&h=600&fit=crop",
+  ],
+  health: [
+    "https://images.unsplash.com/photo-1584982751601-97dcc096659c?w=800&h=600&fit=crop",
+    "https://images.unsplash.com/photo-1576091160399-112ba8d25d1d?w=800&h=600&fit=crop",
+    "https://images.unsplash.com/photo-1505751172876-fa1923c5c528?w=800&h=600&fit=crop",
+    "https://images.unsplash.com/photo-1532938911079-1b06ac7ceec7?w=800&h=600&fit=crop",
+    "https://images.unsplash.com/photo-1571019613454-1cb2f99b2d8b?w=800&h=600&fit=crop",
+  ],
+  entertainment: [
+    "https://images.unsplash.com/photo-1522869635100-9f4c5e86aa37?w=800&h=600&fit=crop",
+    "https://images.unsplash.com/photo-1598899134739-24c46f58b8c0?w=800&h=600&fit=crop",
+    "https://images.unsplash.com/photo-1594908900066-3f47337549d8?w=800&h=600&fit=crop",
+    "https://images.unsplash.com/photo-1574267432644-f610f1f6e6b1?w=800&h=600&fit=crop",
+    "https://images.unsplash.com/photo-1485846234645-a62644f84728?w=800&h=600&fit=crop",
+  ],
+  world: [
+    "https://images.unsplash.com/photo-1504711434969-e33886168f5c?w=800&h=600&fit=crop",
+    "https://images.unsplash.com/photo-1495020689067-958852a7765e?w=800&h=600&fit=crop",
+    "https://images.unsplash.com/photo-1451187580459-43490279c0fa?w=800&h=600&fit=crop",
+    "https://images.unsplash.com/photo-1526778548025-fa2f459cd5c1?w=800&h=600&fit=crop",
+    "https://images.unsplash.com/photo-1569163139394-de4798aa62b4?w=800&h=600&fit=crop",
+  ],
+  general: [
+    "https://images.unsplash.com/photo-1504711434969-e33886168f5c?w=800&h=600&fit=crop",
+    "https://images.unsplash.com/photo-1495020689067-958852a7765e?w=800&h=600&fit=crop",
+    "https://images.unsplash.com/photo-1609137144813-7d9921338f24?w=800&h=600&fit=crop",
+    "https://images.unsplash.com/photo-1588681664899-f142ff2dc9b1?w=800&h=600&fit=crop",
+    "https://images.unsplash.com/photo-1557838923-2985c318be48?w=800&h=600&fit=crop",
+  ],
+};
+
+// Simple hash function to generate consistent index from string
+function hashString(str) {
+  let hash = 0;
+  for (let i = 0; i < str.length; i++) {
+    const char = str.charCodeAt(i);
+    hash = ((hash << 5) - hash) + char;
+    hash = hash & hash; // Convert to 32bit integer
+  }
+  return Math.abs(hash);
+}
+
+// Get a unique fallback image based on category and article title
+function getSmartFallbackImage(category, title) {
+  const categoryImages = FALLBACK_IMAGES[category] || FALLBACK_IMAGES.general;
+  const hash = hashString(title || "");
+  const index = hash % categoryImages.length;
+  return categoryImages[index];
+}
+
 const rssParser = new Parser({
   timeout: 5000, // Reduced from 10000 to prevent Vercel timeout
   headers: {
@@ -397,8 +469,19 @@ export class FallbackChain {
     const deduped = dedupeArticles(collected, this.pageSize * 2);
     const blended = blendArticlesBySource(deduped, this.pageSize);
 
-    console.log(`[FallbackChain] Returning ${blended.length} articles after dedup/blend`);
-    return blended;
+    // Apply smart fallback images to articles without images
+    const withSmartImages = blended.map(article => {
+      if (!article.urlToImage || article.urlToImage === DEFAULT_IMAGE) {
+        return {
+          ...article,
+          urlToImage: getSmartFallbackImage(this.category, article.title)
+        };
+      }
+      return article;
+    });
+
+    console.log(`[FallbackChain] Returning ${withSmartImages.length} articles after dedup/blend/smart-images`);
+    return withSmartImages;
   }
 
   async collectProviders(steps, collected, errors) {
