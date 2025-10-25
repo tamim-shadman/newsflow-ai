@@ -65,15 +65,11 @@ import {
   getTimeAgo,
   generateViewCount,
 } from "@/services/newsAggregator";
-import {
-  enhanceArticlesBatch,
-  enhanceArticleWithLLM,
-} from "@/services/llmService";
+import { enhanceArticleWithLLM } from "@/services/llmService";
 import type {
   NewsArticle,
   CategoryType,
   NewsAPIArticle,
-  EnhancedArticle,
 } from "@/types/news";
 import { getCategoryTheme } from "@/lib/categoryThemes";
 
@@ -106,9 +102,6 @@ const Index = () => {
   const [debouncedSearch, setDebouncedSearch] = useState("");
   const [notificationsEnabled, setNotificationsEnabled] = useState(false);
   const [liveUpdatesEnabled, setLiveUpdatesEnabled] = useState(true);
-  const [enhancedArticles, setEnhancedArticles] = useState<
-    Map<string, EnhancedArticle>
-  >(new Map());
   const [viewCounts] = useState<Map<string, string>>(new Map());
   const [loadingSummary, setLoadingSummary] = useState<string | null>(null);
   const [summaries, setSummaries] = useState<Map<string, string>>(new Map());
@@ -293,8 +286,6 @@ const Index = () => {
   // Convert API articles to our NewsArticle format
   const convertToNewsArticle = useCallback(
     (article: NewsAPIArticle, category: CategoryType): NewsArticle => {
-      const enhanced = enhancedArticles.get(article.url);
-
       // Generate stable view count for this article
       if (!viewCounts.has(article.url)) {
         viewCounts.set(article.url, generateViewCount());
@@ -302,7 +293,7 @@ const Index = () => {
 
       return {
         id: article.url,
-        title: enhanced?.enhancedTitle || article.title,
+        title: article.title,
         category: category,
         image:
           article.urlToImage ||
@@ -310,7 +301,6 @@ const Index = () => {
         time: getTimeAgo(article.publishedAt),
         views: viewCounts.get(article.url)!,
         excerpt:
-          enhanced?.enhancedExcerpt ||
           article.description ||
           "Read more about this story...",
         readTime: calculateReadTime(article.content),
@@ -322,7 +312,7 @@ const Index = () => {
         author: article.author || undefined,
       };
     },
-    [enhancedArticles, viewCounts]
+    [viewCounts]
   );
 
   const featuredNews: NewsArticle[] = useMemo(() => {
@@ -498,17 +488,6 @@ const Index = () => {
     ],
   );
 
-  // Enhance articles with LLM when data loads (optimized - only enhance first 3)
-  useEffect(() => {
-    const enhanceNews = async () => {
-      if (currentNewsData && currentNewsData.length > 0) {
-        const enhanced = await enhanceArticlesBatch(currentNewsData.slice(0, 3), 3);
-        setEnhancedArticles(enhanced);
-      }
-    };
-    enhanceNews();
-  }, [currentNewsData]);
-
   // Intersection Observer for lazy loading
   useEffect(() => {
     if (!loadMoreRef.current || !hasMore || isLoadingMore) return;
@@ -590,16 +569,6 @@ const Index = () => {
       return;
     }
 
-    // Check if this article was already enhanced (first 4-5 articles)
-    const alreadyEnhanced = enhancedArticles.get(articleUrl);
-    if (alreadyEnhanced && alreadyEnhanced.summary) {
-      // Use the existing summary from the enhanced articles
-      setSummaries((prev) =>
-        new Map(prev).set(articleUrl, alreadyEnhanced.summary)
-      );
-      return;
-    }
-
     // Start loading
     setLoadingSummary(articleUrl);
 
@@ -614,9 +583,15 @@ const Index = () => {
       }
 
       const enhanced = await enhanceArticleWithLLM(sourceArticle);
+      const summaryText = (enhanced.summary || "").trim();
 
       // Store the summary
-      setSummaries((prev) => new Map(prev).set(articleUrl, enhanced.summary));
+      setSummaries((prev) =>
+        new Map(prev).set(
+          articleUrl,
+          summaryText || "Summary unavailable."
+        )
+      );
     } catch (error) {
       console.error("Failed to generate summary:", error);
       setSummaries((prev) =>
@@ -628,7 +603,7 @@ const Index = () => {
     } finally {
       setLoadingSummary(null);
     }
-  }, [summaries, enhancedArticles, currentNewsData, newsData, featuredData]);
+  }, [summaries, currentNewsData, newsData, featuredData]);
 
   const theme = getCategoryTheme(activeCategory);
   const activeSlideTheme = featuredNews[currentSlide]
@@ -1338,11 +1313,13 @@ const Index = () => {
                         >
                           <PopoverTrigger asChild>
                             <button
+                              type="button"
                               onClick={(e) => {
                                 e.stopPropagation();
                               }}
-                              className={`hidden sm:block p-2 rounded-full bg-black/70 backdrop-blur-xl text-white transition-all opacity-0 group-hover:opacity-100 hover:bg-gradient-to-r ${articleTheme.accent} hover:shadow-lg focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white/40`}
+                              className={`flex items-center justify-center p-1.5 sm:p-2 rounded-full bg-black/70 backdrop-blur-xl text-white transition-all sm:opacity-0 group-hover:opacity-100 hover:bg-gradient-to-r ${articleTheme.accent} hover:shadow-lg focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white/40 active:scale-95`}
                               title="AI Summary"
+                              aria-label="Open AI summary"
                             >
                               {loadingSummary === article.url ? (
                                 <Loader2 className="w-3 h-3 sm:w-4 sm:h-4 text-white animate-spin" />

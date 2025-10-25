@@ -32,9 +32,303 @@ interface CacheEntry {
 const cache = new Map<string, CacheEntry>();
 const CACHE_TTL = 2 * 60 * 60 * 1000; // 2 hours (7200000 ms)
 const MAX_ARTICLE_AGE = 24 * 60 * 60 * 1000; // 24 hours in milliseconds
+const RSS2JSON_ENDPOINT = "https://api.rss2json.com/v1/api.json";
+const DEFAULT_FALLBACK_IMAGE = "https://images.unsplash.com/photo-1504711434969-e33886168f5c?w=800&h=600&fit=crop";
+
+type ProviderTier = "unlimited" | "limited" | "fallback";
+
+type RSSFeedItem = Record<string, unknown>;
+
+interface RSSItemNormalized extends RSSFeedItem {
+  title?: string;
+  link?: string;
+  pubDate?: string;
+  description?: string;
+  author?: string;
+  content?: string;
+  guid?: string;
+  enclosure?: { link?: string };
+  thumbnail?: string;
+}
+
+interface ProviderConfig {
+  name: string;
+  tier: ProviderTier;
+  options?: Record<string, unknown>;
+}
 
 // Persistent fallback data (never expires)
 const persistentFallback = new Map<string, NewsAPIArticle[]>();
+
+function normalizeUrl(url?: string | null): string | null {
+  if (!url) return null;
+  try {
+    const normalized = new URL(url);
+    normalized.hash = "";
+    return normalized.toString();
+  } catch {
+    return url;
+  }
+}
+
+function toISODate(input?: string | null): string | undefined {
+  if (!input) return undefined;
+  const parsed = new Date(input);
+  if (Number.isNaN(parsed.getTime())) return undefined;
+  return parsed.toISOString();
+}
+
+async function fetchRSSFeed(rssUrl: string, limit: number): Promise<RSSFeedItem[]> {
+  const params: Record<string, string | number> = {
+    rss_url: rssUrl,
+    count: limit,
+  };
+
+  if (RSS2JSON_API_KEY) {
+    params.api_key = RSS2JSON_API_KEY;
+  }
+
+  try {
+    const response = await axios.get(RSS2JSON_ENDPOINT, {
+      params,
+      timeout: 8000,
+    });
+    return Array.isArray(response.data?.items) ? response.data.items : [];
+  } catch (error) {
+    console.warn(`⚠️ RSS fetch failed (${rssUrl})`, error);
+    return [];
+  }
+}
+
+function dedupeArticles(articles: NewsAPIArticle[]): NewsAPIArticle[] {
+  const seen = new Set<string>();
+  const unique: NewsAPIArticle[] = [];
+
+  for (const article of articles) {
+    const key = normalizeUrl(article.url || article.title || "");
+    if (!key) continue;
+    if (seen.has(key)) continue;
+    seen.add(key);
+    unique.push(article);
+  }
+
+  return unique;
+}
+
+function blendArticlesBySource(
+  articles: NewsAPIArticle[],
+  pageSize: number,
+  maxPerSource: number = Math.max(2, Math.ceil(pageSize / 4))
+): NewsAPIArticle[] {
+  const groups = new Map<string, NewsAPIArticle[]>();
+
+  articles
+    .slice()
+    .sort((a, b) => {
+      const aTime = a.publishedAt ? new Date(a.publishedAt).getTime() : 0;
+      const bTime = b.publishedAt ? new Date(b.publishedAt).getTime() : 0;
+      return bTime - aTime;
+    })
+    .forEach(article => {
+      const sourceName = article.source?.name || "Unknown";
+      const list = groups.get(sourceName) || [];
+      if (list.length >= maxPerSource) return;
+      list.push(article);
+      groups.set(sourceName, list);
+    });
+
+  const orderedGroups = Array.from(groups.values());
+  const result: NewsAPIArticle[] = [];
+  let index = 0;
+
+  while (result.length < pageSize && orderedGroups.length > 0) {
+    const group = orderedGroups[index % orderedGroups.length];
+    if (!group || group.length === 0) {
+      orderedGroups.splice(index % orderedGroups.length, 1);
+      index = 0;
+      continue;
+    }
+
+    const article = group.shift();
+    if (article) {
+      result.push(article);
+    }
+
+    if (group.length === 0) {
+      orderedGroups.splice(index % orderedGroups.length, 1);
+      index = 0;
+    } else {
+      index += 1;
+    }
+  }
+
+  return result.slice(0, pageSize);
+}
+
+function mergeAndPrepareArticles(articles: NewsAPIArticle[]): NewsAPIArticle[] {
+  const filtered = filterRecent24Hours(articles);
+  const unique = dedupeArticles(filtered);
+  return unique;
+}
+
+function buildRSSArticles(
+  items: RSSFeedItem[],
+  {
+    sourceId,
+    sourceName,
+    fallbackImage = DEFAULT_FALLBACK_IMAGE,
+  }: { sourceId: string; sourceName: string; fallbackImage?: string }
+): NewsAPIArticle[] {
+  return items
+    .map(item => item as RSSItemNormalized)
+    .filter(item => Boolean(item?.title && item?.link))
+    .map(item => ({
+      source: { id: sourceId, name: sourceName },
+      author: item.author || sourceName,
+      title: item.title ?? sourceName,
+      description: item.description || item.content || item.title || "",
+      url: item.link as string,
+      urlToImage:
+        (item.enclosure?.link && typeof item.enclosure.link === "string"
+          ? item.enclosure.link
+          : item.thumbnail && typeof item.thumbnail === "string"
+            ? item.thumbnail
+            : fallbackImage) || fallbackImage,
+      publishedAt: toISODate(item.pubDate) || new Date().toISOString(),
+      content: (item.content || item.description || null) as string | null,
+    }));
+}
+
+const COMMON_LIMITED_PROVIDERS: ProviderConfig[] = [
+  { name: "guardian", tier: "limited" },
+  { name: "currents", tier: "limited" },
+  { name: "gnews", tier: "limited" },
+  { name: "newsdata", tier: "limited" },
+  { name: "saurav", tier: "fallback" },
+];
+
+const CATEGORY_PROVIDER_MAP: Record<CategoryType, ProviderConfig[]> = {
+  technology: [
+    { name: "hackernews", tier: "unlimited" },
+    { name: "devto", tier: "unlimited" },
+    { name: "lobsters", tier: "unlimited" },
+    { name: "github-trending", tier: "unlimited" },
+    { name: "reddit", tier: "unlimited", options: { subreddit: "technology" } },
+    { name: "slashdot", tier: "unlimited" },
+    { name: "techcrunch", tier: "unlimited" },
+    { name: "the-verge", tier: "unlimited" },
+    { name: "wired", tier: "unlimited" },
+    ...COMMON_LIMITED_PROVIDERS,
+  ],
+  sports: [
+    { name: "espn", tier: "unlimited" },
+    { name: "reddit", tier: "unlimited", options: { subreddit: "soccer" } },
+    { name: "reddit", tier: "unlimited", options: { subreddit: "nba" } },
+    { name: "reddit", tier: "unlimited", options: { subreddit: "nfl" } },
+    { name: "bbc-sport", tier: "unlimited" },
+    { name: "sky-sports", tier: "unlimited" },
+    { name: "goal", tier: "unlimited" },
+    { name: "bleacher-report", tier: "unlimited" },
+    { name: "sportsdb", tier: "limited" },
+    { name: "guardian", tier: "limited" },
+    { name: "currents", tier: "limited" },
+    { name: "newsdata", tier: "limited" },
+    { name: "saurav", tier: "fallback" },
+  ],
+  business: [
+    { name: "yahoo", tier: "unlimited" },
+    { name: "bloomberg", tier: "unlimited" },
+    { name: "reuters-business", tier: "unlimited" },
+    { name: "cnbc", tier: "unlimited" },
+    { name: "marketwatch", tier: "unlimited" },
+    { name: "reddit", tier: "unlimited", options: { subreddit: "business" } },
+    { name: "reddit", tier: "unlimited", options: { subreddit: "investing" } },
+    { name: "marketaux", tier: "limited" },
+    { name: "alphavantage", tier: "limited" },
+    { name: "guardian", tier: "limited" },
+    { name: "currents", tier: "limited" },
+    { name: "gnews", tier: "limited" },
+    { name: "newsdata", tier: "limited" },
+    { name: "saurav", tier: "fallback" },
+  ],
+  health: [
+    { name: "nih", tier: "unlimited" },
+    { name: "cdc-rss", tier: "unlimited" },
+    { name: "who-rss", tier: "unlimited" },
+    { name: "pubmed", tier: "unlimited" },
+    { name: "webmd", tier: "unlimited" },
+    { name: "healthline", tier: "unlimited" },
+    { name: "mayo-clinic", tier: "unlimited" },
+    { name: "reddit", tier: "unlimited", options: { subreddit: "health" } },
+    { name: "guardian", tier: "limited" },
+    { name: "currents", tier: "limited" },
+    { name: "newsdata", tier: "limited" },
+    { name: "saurav", tier: "fallback" },
+  ],
+  entertainment: [
+    { name: "tmdb", tier: "unlimited" },
+    { name: "tvmaze", tier: "unlimited" },
+    { name: "itunes", tier: "unlimited" },
+    { name: "imdb", tier: "unlimited" },
+    { name: "variety", tier: "unlimited" },
+    { name: "hollywood-reporter", tier: "unlimited" },
+    { name: "entertainment-weekly", tier: "unlimited" },
+    { name: "reddit", tier: "unlimited", options: { subreddit: "movies" } },
+    { name: "reddit", tier: "unlimited", options: { subreddit: "television" } },
+    { name: "rottentomatoes", tier: "unlimited" },
+    { name: "metacritic", tier: "unlimited" },
+    { name: "guardian", tier: "limited" },
+    { name: "currents", tier: "limited" },
+    { name: "gnews", tier: "limited" },
+    { name: "newsdata", tier: "limited" },
+    { name: "saurav", tier: "fallback" },
+  ],
+  world: [
+    { name: "bbc-rss", tier: "unlimited" },
+    { name: "reuters-rss", tier: "unlimited" },
+    { name: "aljazeera", tier: "unlimited" },
+    { name: "cnn", tier: "unlimited" },
+    { name: "npr", tier: "unlimited" },
+    { name: "france24", tier: "unlimited" },
+    { name: "dw", tier: "unlimited" },
+    { name: "un-news", tier: "unlimited" },
+    { name: "reddit", tier: "unlimited", options: { subreddit: "worldnews" } },
+    { name: "guardian", tier: "limited" },
+    { name: "currents", tier: "limited" },
+    { name: "newsdata", tier: "limited" },
+    { name: "saurav", tier: "fallback" },
+  ],
+  bangladesh: [
+    { name: "bbc-bangladesh", tier: "unlimited" },
+    { name: "guardian-bangladesh", tier: "unlimited" },
+    { name: "aljazeera", tier: "unlimited" },
+    { name: "newsdata-bangladesh", tier: "limited" },
+    { name: "currents", tier: "limited" },
+    { name: "saurav", tier: "fallback" },
+  ],
+  trending: [
+    { name: "guardian", tier: "limited" },
+    { name: "reddit", tier: "unlimited", options: { subreddit: "news" } },
+    { name: "hackernews", tier: "unlimited" },
+    { name: "bbc-rss", tier: "unlimited" },
+    { name: "cnn", tier: "unlimited" },
+    { name: "currents", tier: "limited" },
+    { name: "gnews", tier: "limited" },
+    { name: "newsdata", tier: "limited" },
+    { name: "saurav", tier: "fallback" },
+  ],
+  all: [
+    { name: "guardian", tier: "limited" },
+    { name: "bbc-rss", tier: "unlimited" },
+    { name: "cnn", tier: "unlimited" },
+    { name: "npr", tier: "unlimited" },
+    { name: "reddit", tier: "unlimited", options: { subreddit: "news" } },
+    { name: "currents", tier: "limited" },
+    { name: "gnews", tier: "limited" },
+    { name: "newsdata", tier: "limited" },
+    { name: "saurav", tier: "fallback" },
+  ],
+};
 
 /**
  * Filter articles to only include those from last 24 hours
@@ -575,70 +869,77 @@ async function fetchNewsDirectly(
   category: CategoryType,
   pageSize: number
 ): Promise<NewsAPIArticle[]> {
-  const cat = category === "all" ? "general" : category;
-  
-  // OPTIMIZED: Route categories to their best APIs first
-  const apiPriority = getCategoryAPIsPriority(category);
-  
-  console.log(`🎯 Using optimized routing for ${category}: ${apiPriority.join(' → ')}`);
-  
-  // Try APIs in priority order for this category
-  for (const apiName of apiPriority) {
-    try {
-      const articles = await tryAPI(apiName, cat, pageSize);
-      if (articles.length > 0) {
-        return articles;
-      }
-    } catch (error) {
-      console.warn(`⚠️ ${apiName} failed, trying next...`);
-    }
+  const providers = CATEGORY_PROVIDER_MAP[category] || CATEGORY_PROVIDER_MAP.all;
+  const normalizedCategory = category === "all" ? "general" : category;
+
+  const collected: NewsAPIArticle[] = [];
+  const unlimitedProviders = providers.filter(provider => provider.tier === "unlimited");
+  const limitedProviders = providers.filter(provider => provider.tier !== "unlimited");
+
+  console.log(
+    `🎯 Using multi-source routing for ${category}: ${providers
+      .map(provider => provider.name)
+      .join(" → ")}`
+  );
+
+  await collectFromProviders(unlimitedProviders, category, normalizedCategory, pageSize, collected);
+
+  if (collected.length < pageSize) {
+    await collectFromProviders(limitedProviders, category, normalizedCategory, pageSize, collected);
   }
-  
-  console.error("❌ All APIs failed for this category");
-  return [];
+
+  if (collected.length === 0) {
+    console.error("❌ All providers failed for this category");
+    return [];
+  }
+
+  const prepared = mergeAndPrepareArticles(collected);
+  const blended = blendArticlesBySource(prepared, pageSize);
+
+  return blended;
 }
 
-/**
- * Get optimized API priority order for each category
- * Based on each API's strengths and content quality
- * Using 20+ specialized APIs with proper fallback chains
- */
-function getCategoryAPIsPriority(category: CategoryType): string[] {
-  const priorities: Partial<Record<CategoryType, string[]>> = {
-    // TECHNOLOGY: Guardian → HackerNews → Dev.to → GitHub Trending → Currents → GNews → NewsData
-    technology: ['guardian', 'hackernews', 'devto', 'github-trending', 'currents', 'gnews', 'newsdata'],
-    bangladesh: ['newsdata'],
-    
-    // SPORTS: Guardian → ESPN → SportsDB → Currents → NewsData
-    sports: ['guardian', 'espn', 'sportsdb', 'currents', 'newsdata'],
-    
-    // BUSINESS: Guardian → Alpha Vantage → Marketaux → Currents → GNews → NewsData
-    business: ['guardian', 'alphavantage', 'marketaux', 'currents', 'gnews', 'newsdata'],
-    
-    // HEALTH: Guardian → PubMed → CDC RSS → Currents → NewsData
-    health: ['guardian', 'pubmed', 'cdc-rss', 'currents', 'newsdata'],
-    
-    // ENTERTAINMENT: Guardian → TMDB → TVMaze → Currents → GNews → NewsData
-    entertainment: ['guardian', 'tmdb', 'tvmaze', 'currents', 'gnews', 'newsdata'],
-    
-    // WORLD: Guardian → BBC RSS → Reuters RSS → Currents → GNews → NewsData
-    world: ['guardian', 'bbc-rss', 'reuters-rss', 'currents', 'gnews', 'newsdata'],
-    
-    // ALL/GENERAL: Guardian → Currents → GNews → NewsData → Saurav
-    all: ['guardian', 'currents', 'gnews', 'newsdata', 'saurav'],
-    
-    // TRENDING: Mix of all for diverse trending topics
-    trending: ['guardian', 'currents', 'gnews', 'newsdata', 'saurav'],
-  };
-  
-  return priorities[category] || priorities.all || ['guardian', 'currents', 'gnews', 'newsdata'];
+async function collectFromProviders(
+  providers: ProviderConfig[],
+  category: CategoryType,
+  normalizedCategory: string,
+  pageSize: number,
+  accumulator: NewsAPIArticle[]
+): Promise<void> {
+  if (providers.length === 0) {
+    return;
+  }
+
+  const baseLimit = Math.max(3, Math.ceil((pageSize + 6) / providers.length));
+
+  for (const provider of providers) {
+    const remaining = pageSize + 8 - accumulator.length;
+    if (remaining <= 0) break;
+
+    const limit = Math.max(baseLimit, Math.ceil(remaining / 2));
+
+    try {
+      const articles = await tryAPI(provider.name, normalizedCategory, limit, provider.options);
+      if (articles.length > 0) {
+        accumulator.push(...articles);
+      }
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      console.warn(`⚠️ ${provider.name} failed for ${category}: ${message}`);
+    }
+  }
 }
 
 /**
  * Try a specific API and return articles
  * Router function to dispatch to specialized API handlers
  */
-async function tryAPI(apiName: string, cat: string, pageSize: number): Promise<NewsAPIArticle[]> {
+async function tryAPI(
+  apiName: string,
+  cat: string,
+  pageSize: number,
+  options: Record<string, unknown> = {}
+): Promise<NewsAPIArticle[]> {
   switch (apiName) {
     // Existing aggregator APIs
     case 'guardian':
@@ -659,36 +960,108 @@ async function tryAPI(apiName: string, cat: string, pageSize: number): Promise<N
       return await tryDevToAPI(pageSize);
     case 'github-trending':
       return await tryGitHubTrendingAPI(pageSize);
+    case 'lobsters':
+      return await tryLobstersAPI(pageSize);
+    case 'slashdot':
+      return await trySlashdotRSSAPI(pageSize);
+    case 'techcrunch':
+      return await tryTechCrunchRSSAPI(pageSize);
+    case 'the-verge':
+      return await tryTheVergeRSSAPI(pageSize);
+    case 'wired':
+      return await tryWiredRSSAPI(pageSize);
+    case 'reddit':
+      return await tryRedditAPI(options.subreddit as string | undefined, pageSize);
     
     // Sports APIs
     case 'espn':
       return await tryESPNAPI(cat, pageSize);
     case 'sportsdb':
       return await trySportsDBAPI(pageSize);
+    case 'bbc-sport':
+      return await tryBBCSportRSSAPI(pageSize);
+    case 'sky-sports':
+      return await trySkySportsRSSAPI(pageSize);
+    case 'goal':
+      return await tryGoalRSSAPI(pageSize);
+    case 'bleacher-report':
+      return await tryBleacherReportRSSAPI(pageSize);
     
     // Business APIs
     case 'alphavantage':
       return await tryAlphaVantageAPI(pageSize);
     case 'marketaux':
       return await tryMarketauxAPI(pageSize);
+    case 'yahoo':
+      return await tryYahooFinanceRSSAPI(pageSize);
+    case 'bloomberg':
+      return await tryBloombergRSSAPI(pageSize);
+    case 'reuters-business':
+      return await tryReutersBusinessRSSAPI(pageSize);
+    case 'cnbc':
+      return await tryCNBCRSSAPI(pageSize);
+    case 'marketwatch':
+      return await tryMarketWatchRSSAPI(pageSize);
     
     // Health APIs
     case 'pubmed':
       return await tryPubMedAPI(pageSize);
     case 'cdc-rss':
       return await tryCDCRSSAPI(pageSize);
+    case 'nih':
+      return await tryNIHRSSAPI(pageSize);
+    case 'who-rss':
+      return await tryWHORSSAPI(pageSize);
+    case 'webmd':
+      return await tryWebMDRSSAPI(pageSize);
+    case 'healthline':
+      return await tryHealthlineRSSAPI(pageSize);
+    case 'mayo-clinic':
+      return await tryMayoClinicRSSAPI(pageSize);
     
     // Entertainment APIs
     case 'tmdb':
       return await tryTMDBAPI(pageSize);
     case 'tvmaze':
       return await tryTVMazeAPI(pageSize);
+    case 'itunes':
+      return await tryITunesAPI(pageSize);
+    case 'imdb':
+      return await tryIMDbRSSAPI(pageSize);
+    case 'variety':
+      return await tryVarietyRSSAPI(pageSize);
+    case 'hollywood-reporter':
+      return await tryHollywoodReporterRSSAPI(pageSize);
+    case 'entertainment-weekly':
+      return await tryEntertainmentWeeklyRSSAPI(pageSize);
+    case 'rottentomatoes':
+      return await tryRottenTomatoesRSSAPI(pageSize);
+    case 'metacritic':
+      return await tryMetacriticRSSAPI(pageSize);
     
     // World News RSS APIs
     case 'bbc-rss':
       return await tryBBCRSSAPI(pageSize);
     case 'reuters-rss':
       return await tryReutersRSSAPI(pageSize);
+    case 'cnn':
+      return await tryCNNRSSAPI(pageSize);
+    case 'npr':
+      return await tryNPRRSSAPI(pageSize);
+    case 'france24':
+      return await tryFrance24RSSAPI(pageSize);
+    case 'dw':
+      return await tryDWRSSAPI(pageSize);
+    case 'un-news':
+      return await tryUNNewsRSSAPI(pageSize);
+    case 'aljazeera':
+      return await tryAlJazeeraRSSAPI(pageSize);
+    case 'bbc-bangladesh':
+      return await tryBBCBangladeshRSSAPI(pageSize);
+    case 'guardian-bangladesh':
+      return await tryGuardianBangladeshRSSAPI(pageSize);
+    case 'newsdata-bangladesh':
+      return await tryNewsDataBangladeshAPI(pageSize);
     
     default:
       console.warn(`⚠️ Unknown API: ${apiName}`);
@@ -1016,6 +1389,105 @@ async function tryGitHubTrendingAPI(pageSize: number): Promise<NewsAPIArticle[]>
   }
 }
 
+async function tryLobstersAPI(pageSize: number): Promise<NewsAPIArticle[]> {
+  try {
+    console.log('🔄 Trying Lobsters API (Unlimited)...');
+
+    const response = await axios.get('https://lobste.rs/hottest.json', { timeout: 8000 });
+    const posts = Array.isArray(response.data) ? response.data : [];
+
+    const articles = posts.slice(0, Math.max(pageSize * 2, pageSize)).map((post: any) => ({
+      source: { id: 'lobsters', name: 'Lobsters' },
+      author: post.submitter_user?.username || 'Lobsters',
+      title: post.title,
+      description: post.description || post.title,
+      url: post.url || `https://lobste.rs/s/${post.short_id}`,
+      urlToImage: DEFAULT_FALLBACK_IMAGE,
+      publishedAt: post.created_at ? new Date(post.created_at).toISOString() : new Date().toISOString(),
+      content: post.description || post.title,
+    }));
+
+    console.log(`✅ Lobsters API SUCCESS: ${articles.length} articles`);
+    return articles.slice(0, pageSize);
+  } catch (error) {
+    console.error('❌ Lobsters API failed:', error);
+    return [];
+  }
+}
+
+async function trySlashdotRSSAPI(pageSize: number): Promise<NewsAPIArticle[]> {
+  const items = await fetchRSSFeed('https://rss.slashdot.org/Slashdot/slashdotMain', pageSize);
+  return buildRSSArticles(items, {
+    sourceId: 'slashdot',
+    sourceName: 'Slashdot',
+  }).slice(0, pageSize);
+}
+
+async function tryTechCrunchRSSAPI(pageSize: number): Promise<NewsAPIArticle[]> {
+  const items = await fetchRSSFeed('https://techcrunch.com/feed/', pageSize);
+  return buildRSSArticles(items, {
+    sourceId: 'techcrunch',
+    sourceName: 'TechCrunch',
+  }).slice(0, pageSize);
+}
+
+async function tryTheVergeRSSAPI(pageSize: number): Promise<NewsAPIArticle[]> {
+  const items = await fetchRSSFeed('https://www.theverge.com/rss/index.xml', pageSize);
+  return buildRSSArticles(items, {
+    sourceId: 'the-verge',
+    sourceName: 'The Verge',
+  }).slice(0, pageSize);
+}
+
+async function tryWiredRSSAPI(pageSize: number): Promise<NewsAPIArticle[]> {
+  const items = await fetchRSSFeed('https://www.wired.com/feed/rss', pageSize);
+  return buildRSSArticles(items, {
+    sourceId: 'wired',
+    sourceName: 'Wired',
+  }).slice(0, pageSize);
+}
+
+async function tryRedditAPI(subreddit: string | undefined, pageSize: number): Promise<NewsAPIArticle[]> {
+  if (!subreddit) {
+    return [];
+  }
+
+  try {
+    console.log(`🔄 Trying Reddit API for r/${subreddit} (Unlimited)...`);
+    const limit = Math.min(pageSize * 2, 100);
+    const response = await axios.get(`https://www.reddit.com/r/${subreddit}/hot.json`, {
+      params: { limit },
+      timeout: 8000,
+      headers: { 'User-Agent': 'newsflow-ai/1.0' },
+    });
+
+    const posts = response.data?.data?.children || [];
+
+    const articles = posts
+      .map((post: any) => post?.data)
+      .filter((data: any) => data && data.title && data.permalink)
+      .map((data: any) => ({
+        source: { id: `reddit-${subreddit}`, name: `r/${subreddit}` },
+        author: data.author || `r/${subreddit}`,
+        title: data.title,
+        description: data.selftext || data.title,
+        url: `https://www.reddit.com${data.permalink}`,
+        urlToImage:
+          data.thumbnail && typeof data.thumbnail === 'string' && data.thumbnail.startsWith('http')
+            ? data.thumbnail
+            : DEFAULT_FALLBACK_IMAGE,
+        publishedAt: data.created_utc ? new Date(data.created_utc * 1000).toISOString() : new Date().toISOString(),
+        content: data.selftext || data.title,
+      }));
+
+    console.log(`✅ Reddit API SUCCESS (r/${subreddit}): ${articles.length} articles`);
+    return articles.slice(0, pageSize);
+  } catch (error) {
+    console.error(`❌ Reddit API failed for r/${subreddit}:`, error);
+    return [];
+  }
+}
+
 // ============================================================================
 // SPORTS APIs
 // ============================================================================
@@ -1089,6 +1561,38 @@ async function trySportsDBAPI(pageSize: number): Promise<NewsAPIArticle[]> {
   }
 }
 
+async function tryBBCSportRSSAPI(pageSize: number): Promise<NewsAPIArticle[]> {
+  const items = await fetchRSSFeed('https://feeds.bbci.co.uk/sport/rss.xml', pageSize);
+  return buildRSSArticles(items, {
+    sourceId: 'bbc-sport',
+    sourceName: 'BBC Sport',
+  }).slice(0, pageSize);
+}
+
+async function trySkySportsRSSAPI(pageSize: number): Promise<NewsAPIArticle[]> {
+  const items = await fetchRSSFeed('https://www.skysports.com/rss/12040', pageSize);
+  return buildRSSArticles(items, {
+    sourceId: 'sky-sports',
+    sourceName: 'Sky Sports',
+  }).slice(0, pageSize);
+}
+
+async function tryGoalRSSAPI(pageSize: number): Promise<NewsAPIArticle[]> {
+  const items = await fetchRSSFeed('https://www.goal.com/feeds/en/news', pageSize);
+  return buildRSSArticles(items, {
+    sourceId: 'goal',
+    sourceName: 'Goal.com',
+  }).slice(0, pageSize);
+}
+
+async function tryBleacherReportRSSAPI(pageSize: number): Promise<NewsAPIArticle[]> {
+  const items = await fetchRSSFeed('https://bleacherreport.com/articles/feed', pageSize);
+  return buildRSSArticles(items, {
+    sourceId: 'bleacher-report',
+    sourceName: 'Bleacher Report',
+  }).slice(0, pageSize);
+}
+
 // ============================================================================
 // BUSINESS APIs
 // ============================================================================
@@ -1160,6 +1664,46 @@ async function tryMarketauxAPI(pageSize: number): Promise<NewsAPIArticle[]> {
     console.error('❌ Marketaux API failed:', error);
     return [];
   }
+}
+
+async function tryYahooFinanceRSSAPI(pageSize: number): Promise<NewsAPIArticle[]> {
+  const items = await fetchRSSFeed('https://finance.yahoo.com/news/rssindex', pageSize);
+  return buildRSSArticles(items, {
+    sourceId: 'yahoo-finance',
+    sourceName: 'Yahoo Finance',
+  }).slice(0, pageSize);
+}
+
+async function tryBloombergRSSAPI(pageSize: number): Promise<NewsAPIArticle[]> {
+  const items = await fetchRSSFeed('https://www.bloomberg.com/feed/podcast/etf-report.xml', pageSize);
+  return buildRSSArticles(items, {
+    sourceId: 'bloomberg',
+    sourceName: 'Bloomberg',
+  }).slice(0, pageSize);
+}
+
+async function tryReutersBusinessRSSAPI(pageSize: number): Promise<NewsAPIArticle[]> {
+  const items = await fetchRSSFeed('https://feeds.reuters.com/reuters/businessNews', pageSize);
+  return buildRSSArticles(items, {
+    sourceId: 'reuters-business',
+    sourceName: 'Reuters Business',
+  }).slice(0, pageSize);
+}
+
+async function tryCNBCRSSAPI(pageSize: number): Promise<NewsAPIArticle[]> {
+  const items = await fetchRSSFeed('https://www.cnbc.com/id/100003114/device/rss/rss.html', pageSize);
+  return buildRSSArticles(items, {
+    sourceId: 'cnbc',
+    sourceName: 'CNBC',
+  }).slice(0, pageSize);
+}
+
+async function tryMarketWatchRSSAPI(pageSize: number): Promise<NewsAPIArticle[]> {
+  const items = await fetchRSSFeed('https://feeds.marketwatch.com/marketwatch/topstories/', pageSize);
+  return buildRSSArticles(items, {
+    sourceId: 'marketwatch',
+    sourceName: 'MarketWatch',
+  }).slice(0, pageSize);
 }
 
 // ============================================================================
@@ -1249,6 +1793,46 @@ async function tryCDCRSSAPI(pageSize: number): Promise<NewsAPIArticle[]> {
   }
 }
 
+async function tryNIHRSSAPI(pageSize: number): Promise<NewsAPIArticle[]> {
+  const items = await fetchRSSFeed('https://www.nih.gov/news-events/news-releases/rss.xml', pageSize);
+  return buildRSSArticles(items, {
+    sourceId: 'nih',
+    sourceName: 'NIH News',
+  }).slice(0, pageSize);
+}
+
+async function tryWHORSSAPI(pageSize: number): Promise<NewsAPIArticle[]> {
+  const items = await fetchRSSFeed('https://www.who.int/rss-feeds/news-english.xml', pageSize);
+  return buildRSSArticles(items, {
+    sourceId: 'who',
+    sourceName: 'WHO News',
+  }).slice(0, pageSize);
+}
+
+async function tryWebMDRSSAPI(pageSize: number): Promise<NewsAPIArticle[]> {
+  const items = await fetchRSSFeed('https://rssfeeds.webmd.com/rss/rss.aspx?RSSSource=RSS_PUBLIC', pageSize);
+  return buildRSSArticles(items, {
+    sourceId: 'webmd',
+    sourceName: 'WebMD',
+  }).slice(0, pageSize);
+}
+
+async function tryHealthlineRSSAPI(pageSize: number): Promise<NewsAPIArticle[]> {
+  const items = await fetchRSSFeed('https://www.healthline.com/rss', pageSize);
+  return buildRSSArticles(items, {
+    sourceId: 'healthline',
+    sourceName: 'Healthline',
+  }).slice(0, pageSize);
+}
+
+async function tryMayoClinicRSSAPI(pageSize: number): Promise<NewsAPIArticle[]> {
+  const items = await fetchRSSFeed('https://www.mayoclinic.org/rss/all-news', pageSize);
+  return buildRSSArticles(items, {
+    sourceId: 'mayo-clinic',
+    sourceName: 'Mayo Clinic',
+  }).slice(0, pageSize);
+}
+
 // ============================================================================
 // ENTERTAINMENT APIs
 // ============================================================================
@@ -1322,6 +1906,87 @@ async function tryTVMazeAPI(pageSize: number): Promise<NewsAPIArticle[]> {
   }
 }
 
+async function tryITunesAPI(pageSize: number): Promise<NewsAPIArticle[]> {
+  try {
+    console.log('🔄 Trying iTunes API (Unlimited)...');
+    const limit = Math.min(Math.max(pageSize, 10), 50);
+    const response = await axios.get('https://itunes.apple.com/search', {
+      params: {
+        term: 'entertainment',
+        media: 'movie',
+        limit,
+      },
+      timeout: 8000,
+    });
+
+    const results = Array.isArray(response.data?.results) ? response.data.results : [];
+    const articles = results.map((item: any) => ({
+      source: { id: 'itunes', name: 'Apple iTunes' },
+      author: item.artistName || 'Apple',
+      title: item.trackName || item.collectionName || 'Trending Entertainment',
+      description: item.shortDescription || item.longDescription || item.collectionName || item.trackName,
+      url: item.trackViewUrl || item.collectionViewUrl || 'https://itunes.apple.com',
+      urlToImage: item.artworkUrl100 || item.artworkUrl600 || DEFAULT_FALLBACK_IMAGE,
+      publishedAt: item.releaseDate ? new Date(item.releaseDate).toISOString() : new Date().toISOString(),
+      content: item.primaryGenreName || item.shortDescription || item.collectionName,
+    }));
+
+    console.log(`✅ iTunes API SUCCESS: ${articles.length} articles`);
+    return articles.slice(0, pageSize);
+  } catch (error) {
+    console.error('❌ iTunes API failed:', error);
+    return [];
+  }
+}
+
+async function tryIMDbRSSAPI(pageSize: number): Promise<NewsAPIArticle[]> {
+  const items = await fetchRSSFeed('https://www.imdb.com/news/rss', pageSize);
+  return buildRSSArticles(items, {
+    sourceId: 'imdb',
+    sourceName: 'IMDb News',
+  }).slice(0, pageSize);
+}
+
+async function tryVarietyRSSAPI(pageSize: number): Promise<NewsAPIArticle[]> {
+  const items = await fetchRSSFeed('https://variety.com/feed/', pageSize);
+  return buildRSSArticles(items, {
+    sourceId: 'variety',
+    sourceName: 'Variety',
+  }).slice(0, pageSize);
+}
+
+async function tryHollywoodReporterRSSAPI(pageSize: number): Promise<NewsAPIArticle[]> {
+  const items = await fetchRSSFeed('https://www.hollywoodreporter.com/t/feed/', pageSize);
+  return buildRSSArticles(items, {
+    sourceId: 'hollywood-reporter',
+    sourceName: 'The Hollywood Reporter',
+  }).slice(0, pageSize);
+}
+
+async function tryEntertainmentWeeklyRSSAPI(pageSize: number): Promise<NewsAPIArticle[]> {
+  const items = await fetchRSSFeed('https://ew.com/feed/', pageSize);
+  return buildRSSArticles(items, {
+    sourceId: 'entertainment-weekly',
+    sourceName: 'Entertainment Weekly',
+  }).slice(0, pageSize);
+}
+
+async function tryRottenTomatoesRSSAPI(pageSize: number): Promise<NewsAPIArticle[]> {
+  const items = await fetchRSSFeed('https://www.rottentomatoes.com/syndication/rss/top_news.xml', pageSize);
+  return buildRSSArticles(items, {
+    sourceId: 'rottentomatoes',
+    sourceName: 'Rotten Tomatoes',
+  }).slice(0, pageSize);
+}
+
+async function tryMetacriticRSSAPI(pageSize: number): Promise<NewsAPIArticle[]> {
+  const items = await fetchRSSFeed('https://www.metacritic.com/rss/movies', pageSize);
+  return buildRSSArticles(items, {
+    sourceId: 'metacritic',
+    sourceName: 'Metacritic',
+  }).slice(0, pageSize);
+}
+
 // ============================================================================
 // WORLD NEWS RSS APIs
 // ============================================================================
@@ -1388,6 +2053,102 @@ async function tryReutersRSSAPI(pageSize: number): Promise<NewsAPIArticle[]> {
     return articles;
   } catch (error) {
     console.error('❌ Reuters RSS API failed:', error);
+    return [];
+  }
+}
+
+async function tryCNNRSSAPI(pageSize: number): Promise<NewsAPIArticle[]> {
+  const items = await fetchRSSFeed('http://rss.cnn.com/rss/edition_world.rss', pageSize);
+  return buildRSSArticles(items, {
+    sourceId: 'cnn',
+    sourceName: 'CNN',
+  }).slice(0, pageSize);
+}
+
+async function tryNPRRSSAPI(pageSize: number): Promise<NewsAPIArticle[]> {
+  const items = await fetchRSSFeed('https://feeds.npr.org/1004/rss.xml', pageSize);
+  return buildRSSArticles(items, {
+    sourceId: 'npr',
+    sourceName: 'NPR',
+  }).slice(0, pageSize);
+}
+
+async function tryFrance24RSSAPI(pageSize: number): Promise<NewsAPIArticle[]> {
+  const items = await fetchRSSFeed('https://www.france24.com/en/rss', pageSize);
+  return buildRSSArticles(items, {
+    sourceId: 'france24',
+    sourceName: 'France 24',
+  }).slice(0, pageSize);
+}
+
+async function tryDWRSSAPI(pageSize: number): Promise<NewsAPIArticle[]> {
+  const items = await fetchRSSFeed('https://rss.dw.com/rdf/rss-en-all', pageSize);
+  return buildRSSArticles(items, {
+    sourceId: 'dw',
+    sourceName: 'Deutsche Welle',
+  }).slice(0, pageSize);
+}
+
+async function tryUNNewsRSSAPI(pageSize: number): Promise<NewsAPIArticle[]> {
+  const items = await fetchRSSFeed('https://news.un.org/feed/subscribe/en/news/all/rss.xml', pageSize);
+  return buildRSSArticles(items, {
+    sourceId: 'un-news',
+    sourceName: 'UN News',
+  }).slice(0, pageSize);
+}
+
+async function tryAlJazeeraRSSAPI(pageSize: number): Promise<NewsAPIArticle[]> {
+  const items = await fetchRSSFeed('https://www.aljazeera.com/xml/rss/all.xml', pageSize);
+  return buildRSSArticles(items, {
+    sourceId: 'aljazeera',
+    sourceName: 'Al Jazeera',
+  }).slice(0, pageSize);
+}
+
+async function tryBBCBangladeshRSSAPI(pageSize: number): Promise<NewsAPIArticle[]> {
+  const items = await fetchRSSFeed('https://feeds.bbci.co.uk/news/world/asia/rss.xml', pageSize);
+  return buildRSSArticles(items, {
+    sourceId: 'bbc-bangladesh',
+    sourceName: 'BBC Asia',
+  }).slice(0, pageSize);
+}
+
+async function tryGuardianBangladeshRSSAPI(pageSize: number): Promise<NewsAPIArticle[]> {
+  const items = await fetchRSSFeed('https://www.theguardian.com/world/bangladesh/rss', pageSize);
+  return buildRSSArticles(items, {
+    sourceId: 'guardian-bangladesh',
+    sourceName: 'The Guardian - Bangladesh',
+  }).slice(0, pageSize);
+}
+
+async function tryNewsDataBangladeshAPI(pageSize: number): Promise<NewsAPIArticle[]> {
+  try {
+    console.log('🔄 Trying NewsData.io Bangladesh API...');
+    const response = await axios.get('https://newsdata.io/api/1/news', {
+      params: {
+        apikey: NEWSDATA_BD_API_KEY || NEWSDATA_API_KEY,
+        country: 'bd',
+        language: 'en',
+      },
+      timeout: 8000,
+    });
+
+    const results = Array.isArray(response.data?.results) ? response.data.results : [];
+    const articles = results.slice(0, pageSize).map((article: any) => ({
+      source: { id: article.source_id || 'newsdata-bd', name: article.source_id || 'NewsData Bangladesh' },
+      author: article.creator?.[0] || 'NewsData.io',
+      title: article.title,
+      description: article.description || article.title,
+      url: article.link,
+      urlToImage: article.image_url || DEFAULT_FALLBACK_IMAGE,
+      publishedAt: article.pubDate || new Date().toISOString(),
+      content: article.content || article.description,
+    }));
+
+    console.log(`✅ NewsData.io Bangladesh SUCCESS: ${articles.length} articles`);
+    return articles;
+  } catch (error) {
+    console.error('❌ NewsData.io Bangladesh failed:', error);
     return [];
   }
 }
