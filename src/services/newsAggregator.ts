@@ -240,7 +240,7 @@ interface CacheEntry {
 const cache = new Map<string, CacheEntry>();
 const CACHE_TTL = 2 * 60 * 60 * 1000; // 2 hours (7200000 ms) for most categories
 const CACHE_TTL_RSS_HEAVY = 30 * 60 * 1000; // 30 minutes for RSS-heavy categories (Bangladesh, Health)
-const MAX_ARTICLE_AGE = 24 * 60 * 60 * 1000; // 24 hours in milliseconds
+const MAX_ARTICLE_AGE = 48 * 60 * 60 * 1000; // 48 hours in milliseconds (increased from 24 hours)
 const RSS2JSON_ENDPOINT = "https://api.rss2json.com/v1/api.json";
 
 type ProviderTier = "unlimited" | "limited" | "fallback";
@@ -397,12 +397,19 @@ function blendArticlesBySource(
 }
 
 function mergeAndPrepareArticles(articles: NewsAPIArticle[], category: CategoryType = 'all'): NewsAPIArticle[] {
-  const filtered = filterRecent24Hours(articles);
+  const filtered = filterRecent48Hours(articles);
   const unique = dedupeArticles(filtered);
+  
+  // Sort by publish date - LATEST FIRST (newest to oldest)
+  const sorted = unique.sort((a, b) => {
+    const aTime = a.publishedAt ? new Date(a.publishedAt).getTime() : 0;
+    const bTime = b.publishedAt ? new Date(b.publishedAt).getTime() : 0;
+    return bTime - aTime; // Descending order (latest first)
+  });
   
   // Apply smart fallback images to articles without images
   // Uses both title and description for better variety
-  return unique.map(article => {
+  return sorted.map(article => {
     if (!article.urlToImage || article.urlToImage === DEFAULT_FALLBACK_IMAGE) {
       return {
         ...article,
@@ -655,7 +662,7 @@ const CATEGORY_PROVIDER_MAP: Record<CategoryType, ProviderConfig[]> = {
 /**
  * Filter articles to only include those from last 24 hours
  */
-function filterRecent24Hours(articles: NewsAPIArticle[]): NewsAPIArticle[] {
+function filterRecent48Hours(articles: NewsAPIArticle[]): NewsAPIArticle[] {
   const now = Date.now();
   return articles.filter(article => {
     if (!article.publishedAt) return false;
@@ -671,7 +678,7 @@ function filterRecent24Hours(articles: NewsAPIArticle[]): NewsAPIArticle[] {
       // Skip articles with future dates (timezone issues, API errors)
       if (age < 0) return false;
       
-      // Only include articles from last 24 hours
+      // Only include articles from last 48 hours
       return age <= MAX_ARTICLE_AGE;
     } catch (error) {
       console.error("Error parsing article date:", error);
@@ -852,15 +859,15 @@ export async function fetchNewsByCategory(
         });
 
         if (response.data.status === "ok" && response.data.articles) {
-          // Filter articles: valid title AND from last 24 hours
+          // Filter articles: valid title AND from last 48 hours
           articles = response.data.articles.filter(
             (article: NewsAPIArticle) =>
               article.title && article.title !== "[Removed]"
           );
           
-          // Apply 24-hour filter
-          const recentArticles = filterRecent24Hours(articles);
-          console.log(`📅 Filtered ${articles.length} → ${recentArticles.length} articles (last 24 hours)`);
+          // Apply 48-hour filter and sort by latest first
+          const recentArticles = filterRecent48Hours(articles);
+          console.log(`📅 Filtered ${articles.length} → ${recentArticles.length} articles (last 48 hours)`);
           articles = recentArticles;
         }
       } catch (serverlessError: unknown) {
@@ -882,9 +889,9 @@ export async function fetchNewsByCategory(
         
         const fetchedArticles = await Promise.race([fetchPromise, timeoutPromise]);
         
-        // Apply 24-hour filter
-        articles = filterRecent24Hours(fetchedArticles);
-        console.log(`📅 Filtered ${fetchedArticles.length} → ${articles.length} articles (last 24 hours)`);
+        // Apply 48-hour filter and sort by latest first
+        articles = filterRecent48Hours(fetchedArticles);
+        console.log(`📅 Filtered ${fetchedArticles.length} → ${articles.length} articles (last 48 hours)`);
       } catch (directError: unknown) {
         const errorMsg = directError instanceof Error ? directError.message : 'Unknown error';
         errors.push(`Direct fetch failed: ${errorMsg}`);
@@ -1252,27 +1259,53 @@ async function collectFromProviders(
     return;
   }
 
-  const minSources = 3; // Collect from at least 3 sources for variety
-  const targetArticles = pageSize * 3; // Collect more to ensure enough after blending
+  // RSS-heavy categories (Bangladesh, Health) need more RSS sources for better coverage
+  const isRSSHeavy = category === 'bangladesh' || category === 'health';
+  const minSources = isRSSHeavy ? 5 : 3; // Collect from more RSS sources for Bangladesh/Health
+  const targetArticles = isRSSHeavy ? pageSize * 4 : pageSize * 3; // Collect even more articles from RSS
   let sourcesCollected = 0;
 
-  for (const provider of providers) {
-    // Stop only if we have enough articles AND variety
-    if (accumulator.length >= targetArticles && sourcesCollected >= minSources) {
-      break;
-    }
+  console.log(`📰 ${category}: Collecting from ${providers.length} providers (min sources: ${minSources}, target: ${targetArticles} articles)`);
 
-    try {
-      const articles = await tryAPI(provider.name, normalizedCategory, pageSize, provider.options);
-      if (articles.length > 0) {
-        accumulator.push(...articles);
-        sourcesCollected++;
+  for (const provider of providers) {
+    // For RSS-heavy categories, prioritize unlimited (RSS) sources more aggressively
+    if (isRSSHeavy && provider.tier === "unlimited") {
+      // Always collect from RSS feeds, don't stop early
+      try {
+        console.log(`  📡 Trying RSS: ${provider.name}`);
+        const articles = await tryAPI(provider.name, normalizedCategory, pageSize, provider.options);
+        if (articles.length > 0) {
+          console.log(`  ✅ ${provider.name}: ${articles.length} articles`);
+          accumulator.push(...articles);
+          sourcesCollected++;
+        } else {
+          console.log(`  ⚠️ ${provider.name}: No articles`);
+        }
+      } catch (error) {
+        console.log(`  ❌ ${provider.name}: Failed`);
       }
-    } catch (error) {
-      // Silently skip failed providers - we have many fallbacks
-      continue;
+    } else {
+      // Standard behavior for other categories
+      // Stop only if we have enough articles AND variety
+      if (accumulator.length >= targetArticles && sourcesCollected >= minSources) {
+        console.log(`  🎯 Target reached: ${accumulator.length} articles from ${sourcesCollected} sources`);
+        break;
+      }
+
+      try {
+        const articles = await tryAPI(provider.name, normalizedCategory, pageSize, provider.options);
+        if (articles.length > 0) {
+          accumulator.push(...articles);
+          sourcesCollected++;
+        }
+      } catch (error) {
+        // Silently skip failed providers - we have many fallbacks
+        continue;
+      }
     }
   }
+  
+  console.log(`✅ Collection complete: ${accumulator.length} total articles from ${sourcesCollected} sources`);
 }
 
 /**
