@@ -79,11 +79,11 @@ export function useProgressiveNews(
 
 /**
  * Simple progressive loader - loads in chunks of increasing size
- * Uses shorter cache for RSS-heavy categories (Bangladesh, Health)
+ * Uses shorter cache for RSS-heavy categories (Health)
  */
 export function useChunkedNews(category: CategoryType) {
   // Use 30 min staleTime for RSS-heavy categories, 2 hours for others
-  const isRSSHeavy = category === 'bangladesh' || category === 'health';
+  const isRSSHeavy = category === 'health';
   const staleTime = isRSSHeavy ? 30 * 60 * 1000 : 2 * 60 * 60 * 1000;
   
   // First load: 6 articles (fast)
