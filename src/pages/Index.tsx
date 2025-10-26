@@ -117,7 +117,6 @@ const Index = () => {
 
   const categories = [
     { id: "all" as CategoryType, name: "All News", icon: Newspaper },
-    { id: "bangladesh" as CategoryType, name: "Bangladesh 🇧🇩", icon: Globe },
     { id: "trending" as CategoryType, name: "Trending", icon: Flame },
     { id: "technology" as CategoryType, name: "Technology", icon: Cpu },
     { id: "sports" as CategoryType, name: "Sports", icon: Trophy },

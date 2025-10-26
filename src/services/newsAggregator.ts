@@ -239,7 +239,7 @@ interface CacheEntry {
 
 const cache = new Map<string, CacheEntry>();
 const CACHE_TTL = 2 * 60 * 60 * 1000; // 2 hours (7200000 ms) for most categories
-const CACHE_TTL_RSS_HEAVY = 30 * 60 * 1000; // 30 minutes for RSS-heavy categories (Bangladesh, Health)
+const CACHE_TTL_RSS_HEAVY = 30 * 60 * 1000; // 30 minutes for RSS-heavy categories (Health)
 const MAX_ARTICLE_AGE = 48 * 60 * 60 * 1000; // 48 hours in milliseconds (increased from 24 hours)
 const MAX_ARTICLE_AGE_RSS_HEAVY = 72 * 60 * 60 * 1000; // 72 hours for RSS-heavy categories needing extended freshness window
 const RSS_PROXY_TIMEOUT = 12000;
@@ -568,7 +568,9 @@ const CATEGORY_PROVIDER_MAP: Record<CategoryType, ProviderConfig[]> = {
     { name: "saurav", tier: "fallback" },
   ],
   health: [
-    // Reliable Free Health RSS Feeds (Unlimited, No API Key)
+    // PubMed API with API Key (Priority)
+    { name: "pubmed", tier: "unlimited" },
+    // Reliable Free Health RSS Feeds
     { name: "sciencedaily-health", tier: "unlimited" },
     { name: "medlineplus", tier: "unlimited" },
     { name: "google-news-health", tier: "unlimited" },
@@ -592,12 +594,7 @@ const CATEGORY_PROVIDER_MAP: Record<CategoryType, ProviderConfig[]> = {
     { name: "harvard-health", tier: "unlimited" },
     { name: "cleveland-clinic", tier: "unlimited" },
     { name: "healthday-full", tier: "unlimited" },
-    { name: "healthday-full", tier: "unlimited" },
-    // Bangladesh Health RSS Feeds
-    { name: "dailystar-health", tier: "unlimited" },
-    { name: "bdnews24-health", tier: "unlimited" },
-    // Community & Other Sources
-    { name: "pubmed", tier: "unlimited" },
+    // Community Sources
     { name: "reddit", tier: "unlimited", options: { subreddit: "health" } },
     { name: "reddit", tier: "unlimited", options: { subreddit: "medicine" } },
     { name: "reddit", tier: "unlimited", options: { subreddit: "medicalscience" } },
@@ -689,30 +686,6 @@ const CATEGORY_PROVIDER_MAP: Record<CategoryType, ProviderConfig[]> = {
     { name: "newsdata", tier: "limited" },
     { name: "saurav", tier: "fallback" },
   ],
-  bangladesh: [
-    // Primary Bangladesh RSS Feeds (Unlimited, No API Key)
-    { name: "dailystar-bd", tier: "unlimited" },
-    { name: "banglanews24", tier: "unlimited" },
-    { name: "prothomalo-en", tier: "unlimited" },
-    { name: "dhakatribune", tier: "unlimited" },
-    { name: "bdnews24", tier: "unlimited" },
-    { name: "bangladeshjournal", tier: "unlimited" },
-    { name: "hindustantimes-bangla", tier: "unlimited" },
-    { name: "google-news-bangladesh", tier: "unlimited" },
-    // International Coverage
-    { name: "bbc-bangladesh", tier: "unlimited" },
-    { name: "guardian-bangladesh", tier: "unlimited" },
-    { name: "aljazeera", tier: "unlimited" },
-    // Recommended Bangladesh Alternative Sources
-    { name: "business-standard-bd", tier: "unlimited" },
-    { name: "dhaka-post", tier: "unlimited" },
-    { name: "independent-bangladesh", tier: "unlimited" },
-    { name: "google-news-bangladesh-topic", tier: "unlimited" },
-    // Limited APIs as fallback
-    { name: "newsdata-bangladesh", tier: "limited" },
-    { name: "currents", tier: "limited" },
-    { name: "saurav", tier: "fallback" },
-  ],
   trending: [
     { name: "google-news-world", tier: "unlimited" },
     { name: "reddit", tier: "unlimited", options: { subreddit: "news" } },
@@ -743,7 +716,7 @@ const CATEGORY_PROVIDER_MAP: Record<CategoryType, ProviderConfig[]> = {
 
 function getAgeLimitForCategory(category?: CategoryType | "general"): number {
   const normalizedCategory = category === "general" ? "all" : category;
-  return normalizedCategory === "bangladesh" || normalizedCategory === "health"
+  return normalizedCategory === "health"
     ? MAX_ARTICLE_AGE_RSS_HEAVY
     : MAX_ARTICLE_AGE;
 }
@@ -793,8 +766,8 @@ function getFromCache(key: string): NewsAPIArticle[] | null {
   const entry = cache.get(key);
   if (!entry) return null;
   
-  // Use shorter TTL for RSS-heavy categories (Bangladesh, Health)
-  const isRSSHeavy = key.includes('bangladesh') || key.includes('health');
+  // Use shorter TTL for RSS-heavy categories (Health)
+  const isRSSHeavy = key.includes('health');
   const ttl = isRSSHeavy ? CACHE_TTL_RSS_HEAVY : CACHE_TTL;
   
   const isExpired = Date.now() - entry.timestamp > ttl;
@@ -822,7 +795,7 @@ function setCache(key: string, data: NewsAPIArticle[]) {
   // Also store as persistent fallback (never expires)
   persistentFallback.set(key, data);
   
-  const isRSSHeavyKey = key.includes('bangladesh') || key.includes('health');
+  const isRSSHeavyKey = key.includes('health');
   const ttlMinutes = Math.round((isRSSHeavyKey ? CACHE_TTL_RSS_HEAVY : CACHE_TTL) / (60 * 1000));
   console.log(`💾 Cached data for: ${key} (valid for ${ttlMinutes} minutes)`);
 }
@@ -838,80 +811,6 @@ function getPersistentFallback(key: string): NewsAPIArticle[] | null {
 }
 
 /**
- * Fetch Bangladesh news using multi-source routing prioritizing RSS feeds before limited APIs
- * @param pageSize - Number of articles to fetch
- */
-export async function fetchBangladeshNews(pageSize: number = 20): Promise<NewsAPIArticle[]> {
-  const cacheKey = `bangladesh_news_${pageSize}`;
-
-  const cached = getFromCache(cacheKey);
-  if (cached) {
-    console.log('✅ Using cached Bangladesh news');
-    return cached;
-  }
-
-  console.log('🇧🇩 Fetching Bangladesh news (multi-source pipeline)...');
-
-  try {
-    const collectionPageSize = Math.max(pageSize, 20);
-    let collected: NewsAPIArticle[] = [];
-
-    try {
-      collected = await fetchNewsDirectly('bangladesh', collectionPageSize);
-      console.log(`📰 Primary Bangladesh sources returned ${collected.length} articles`);
-    } catch (primaryError) {
-      console.warn('⚠️ Primary Bangladesh pipeline failed:', primaryError instanceof Error ? primaryError.message : primaryError);
-    }
-
-    if (collected.length < pageSize) {
-      if (!NEWSDATA_BD_API_KEY && !NEWSDATA_API_KEY) {
-        console.log('🔐 Skipping NewsData.io top-up (missing API key)');
-      } else {
-        const topUp = await tryNewsDataBangladeshAPI(Math.max(pageSize * 2, 20));
-        if (topUp.length > 0) {
-          console.log(`➕ Added ${topUp.length} fallback articles from NewsData.io Bangladesh`);
-          collected = collected.length > 0 ? [...collected, ...topUp] : topUp;
-        }
-      }
-    }
-
-    if (collected.length === 0) {
-      throw new Error('No Bangladesh news data received from primary sources');
-    }
-
-    const prepared = mergeAndPrepareArticles(collected, 'bangladesh');
-    const blended = blendArticlesBySource(prepared, pageSize);
-    const finalArticles = blended.slice(0, pageSize);
-
-    if (finalArticles.length === 0) {
-      throw new Error('Bangladesh pipeline returned only stale articles');
-    }
-
-    setCache(cacheKey, finalArticles);
-    console.log(`✅ Successfully fetched ${finalArticles.length} Bangladesh news articles`);
-    return finalArticles;
-  } catch (error) {
-    console.error('❌ Error fetching Bangladesh news:', error);
-
-    const staleCache = cache.get(cacheKey);
-    if (staleCache) {
-      console.log('⚠️ Using stale cache for Bangladesh news');
-      return staleCache.data;
-    }
-
-    const persistent = getPersistentFallback(cacheKey);
-    if (persistent) {
-      return persistent.slice(0, pageSize);
-    }
-
-    const fallback = getFallbackNews('bangladesh', pageSize);
-    console.log('🆘 Using static fallback for Bangladesh news');
-    setCache(cacheKey, fallback);
-    return fallback;
-  }
-}
-
-/**
  * Fetch news from multiple aggregated sources
  * @param category - The news category to fetch
  * @param pageSize - Number of articles to fetch (default: 20)
@@ -922,14 +821,6 @@ export async function fetchNewsByCategory(
   pageSize: number = 20
 ): Promise<NewsAPIArticle[]> {
   const cacheKey = `news_${category}_${pageSize}`;
-
-  if (category === "bangladesh") {
-    const bangladeshNews = await fetchBangladeshNews(pageSize);
-    if (bangladeshNews.length > 0) {
-      return bangladeshNews;
-    }
-    return getFallbackNews("bangladesh", pageSize);
-  }
   
   try {
     // Check cache first (2-hour TTL)
@@ -1361,9 +1252,9 @@ async function collectFromProviders(
     return;
   }
 
-  // RSS-heavy categories (Bangladesh, Health) need more RSS sources for better coverage
-  const isRSSHeavy = category === 'bangladesh' || category === 'health';
-  const minSources = isRSSHeavy ? 5 : 3; // Collect from more RSS sources for Bangladesh/Health
+  // RSS-heavy categories (Health) need more RSS sources for better coverage
+  const isRSSHeavy = category === 'health';
+  const minSources = isRSSHeavy ? 5 : 3; // Collect from more RSS sources for Health
   const targetArticles = isRSSHeavy ? pageSize * 4 : pageSize * 3; // Collect even more articles from RSS
   let sourcesCollected = 0;
 
@@ -2490,21 +2381,44 @@ async function tryMarketWatchRSSAPI(pageSize: number): Promise<NewsAPIArticle[]>
  */
 async function tryPubMedAPI(pageSize: number): Promise<NewsAPIArticle[]> {
   try {
-    console.log('🔄 Trying PubMed API (Unlimited, no quota)...');
+    console.log('🔄 Trying PubMed API with API key...');
     
-    // Search for recent health articles
+    const API_KEY = 'ec65ccccf35b5b591ba35d5a0293d0c97508';
+    
+    // Search for recent health articles using official PubMed API with key
     const searchResponse = await axios.get(
-      `https://eutils.ncbi.nlm.nih.gov/entrez/eutils/esearch.fcgi?db=pubmed&term=health+news&retmax=${pageSize}&retmode=json&sort=date`,
-      { timeout: 8000 }
+      `https://eutils.ncbi.nlm.nih.gov/entrez/eutils/esearch.fcgi`,
+      { 
+        params: {
+          db: 'pubmed',
+          term: 'health[Title] AND ("last 7 days"[PDat])',
+          retmax: pageSize * 2,
+          retmode: 'json',
+          sort: 'date',
+          api_key: API_KEY
+        },
+        timeout: 10000 
+      }
     );
     
     const ids = searchResponse.data.esearchresult?.idlist || [];
-    if (ids.length === 0) return [];
+    if (ids.length === 0) {
+      console.log('⚠️ PubMed: No articles found');
+      return [];
+    }
     
-    // Fetch article details
+    // Fetch article details with API key
     const summaryResponse = await axios.get(
-      `https://eutils.ncbi.nlm.nih.gov/entrez/eutils/esummary.fcgi?db=pubmed&id=${ids.join(',')}&retmode=json`,
-      { timeout: 8000 }
+      `https://eutils.ncbi.nlm.nih.gov/entrez/eutils/esummary.fcgi`,
+      { 
+        params: {
+          db: 'pubmed',
+          id: ids.join(','),
+          retmode: 'json',
+          api_key: API_KEY
+        },
+        timeout: 10000 
+      }
     );
     
     const articles: NewsAPIArticle[] = [];
@@ -2513,21 +2427,24 @@ async function tryPubMedAPI(pageSize: number): Promise<NewsAPIArticle[]> {
     for (const id of ids) {
       const article = result[id];
       if (article && article.title) {
+        // Get authors string
+        const authorString = article.authors?.slice(0, 3).map((a: any) => a.name).join(', ') || 'PubMed';
+        
         articles.push({
           source: { id: "pubmed", name: "PubMed" },
-          author: article.authors?.[0]?.name || "PubMed",
+          author: authorString,
           title: article.title,
           description: article.source || article.title,
           url: `https://pubmed.ncbi.nlm.nih.gov/${id}/`,
           urlToImage: "https://images.unsplash.com/photo-1576091160399-112ba8d25d1d?w=800&h=600&fit=crop",
           publishedAt: article.pubdate ? new Date(article.pubdate).toISOString() : new Date().toISOString(),
-          content: article.source || article.title,
+          content: `${article.source || ''} ${article.title}`.trim(),
         });
       }
     }
     
-    console.log(`✅ PubMed API SUCCESS: ${articles.length} articles`);
-    return articles;
+    console.log(`✅ PubMed API SUCCESS: ${articles.length} articles (with API key)`);
+    return articles.slice(0, pageSize);
   } catch (error) {
     console.error('❌ PubMed API failed:', error);
     return [];
@@ -4121,48 +4038,6 @@ function getFallbackNews(category: CategoryType, pageSize: number = 20): NewsAPI
         urlToImage: "https://images.unsplash.com/photo-1503676260728-1c00da094a0b?w=800&h=600&fit=crop",
         publishedAt: new Date(Date.now() - 11 * 60 * 60 * 1000).toISOString(),
         content: "Educational institutions embrace new pedagogical approaches combining digital tools with personalized learning strategies.",
-      },
-    ],
-    bangladesh: [
-      {
-        source: { id: "bd-daily", name: "Dhaka Daily" },
-        author: "Farhana Rahman",
-        title: "Metro Rail Expansion Eases Dhaka Commute",
-        description: "New metro rail stations open across Dhaka, reducing travel time for thousands of daily commuters.",
-        url: "https://example.com/bd-metro",
-        urlToImage: "https://images.unsplash.com/photo-1524499982521-1ffd58dd89ea?w=800&h=600&fit=crop",
-        publishedAt: new Date(Date.now() - 2 * 60 * 60 * 1000).toISOString(),
-        content: "Bangladesh inaugurated several metro rail stations, marking a major milestone in the country's transportation infrastructure.",
-      },
-      {
-        source: { id: "bd-finance", name: "Bangladesh Business" },
-        author: "Imran Chowdhury",
-        title: "Startup Ecosystem Thrives in Dhaka Tech Hubs",
-        description: "Bangladesh's startup community sees record investment as new innovation hubs open across the capital.",
-        url: "https://example.com/bd-startups",
-        urlToImage: "https://images.unsplash.com/photo-1474631245212-32dc3c8310c6?w=800&h=600&fit=crop",
-        publishedAt: new Date(Date.now() - 4 * 60 * 60 * 1000).toISOString(),
-        content: "Investors are backing Bangladeshi startups focused on fintech, agritech, and clean energy solutions at unprecedented levels.",
-      },
-      {
-        source: { id: "bd-health", name: "Health Bangladesh" },
-        author: "Dr. Nusrat Alam",
-        title: "Community Clinics Expand Healthcare Access",
-        description: "Government-led health initiatives bring modern medical facilities to rural districts across Bangladesh.",
-        url: "https://example.com/bd-health",
-        urlToImage: "https://images.unsplash.com/photo-1504439468489-c8920d796a29?w=800&h=600&fit=crop",
-        publishedAt: new Date(Date.now() - 6 * 60 * 60 * 1000).toISOString(),
-        content: "Newly established community clinics are offering affordable primary care and telemedicine services in remote regions.",
-      },
-      {
-        source: { id: "bd-sports", name: "Bangla Sports" },
-        author: "Rafiq Hasan",
-        title: "Bangladesh Cricket Team Clinches Historic Series",
-        description: "The Tigers secure a landmark victory in a home series, igniting celebrations nationwide.",
-        url: "https://example.com/bd-cricket",
-        urlToImage: "https://images.unsplash.com/photo-1516455207990-7a41ce80f7ee?w=800&h=600&fit=crop",
-        publishedAt: new Date(Date.now() - 8 * 60 * 60 * 1000).toISOString(),
-        content: "Bangladesh's national cricket team delivered a dominant performance, reinforcing its rise on the international stage.",
       },
     ],
     technology: [

@@ -46,7 +46,6 @@ export interface EnhancedArticle {
 
 export type CategoryType =
   | "all"
-  | "bangladesh"
   | "trending"
   | "business"
   | "technology"
