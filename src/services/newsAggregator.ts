@@ -19,6 +19,7 @@ const MARKETAUX_API_KEY = import.meta.env.MARKETAUX_API_KEY;
 const FMP_API_KEY = import.meta.env.FMP_API_KEY;
 const SPORTSDB_API_KEY = import.meta.env.SPORTSDB_API_KEY;
 const API_FOOTBALL_KEY = import.meta.env.API_FOOTBALL_KEY;
+const PUBMED_API_KEY = import.meta.env.PUBMED_API_KEY;
 const TMDB_API_KEY = import.meta.env.TMDB_API_KEY;
 const OMDB_API_KEY = import.meta.env.OMDB_API_KEY;
 const RSS_PROXY_URL = import.meta.env.VITE_RSS_PROXY_URL || "/api/rss-proxy";
@@ -2381,9 +2382,12 @@ async function tryMarketWatchRSSAPI(pageSize: number): Promise<NewsAPIArticle[]>
  */
 async function tryPubMedAPI(pageSize: number): Promise<NewsAPIArticle[]> {
   try {
-    console.log('🔄 Trying PubMed API with API key...');
+    if (!PUBMED_API_KEY) {
+      console.log('⚠️ PubMed API key not configured');
+      return [];
+    }
     
-    const API_KEY = 'ec65ccccf35b5b591ba35d5a0293d0c97508';
+    console.log('🔄 Trying PubMed API with API key...');
     
     // Search for recent health articles using official PubMed API with key
     const searchResponse = await axios.get(
@@ -2395,7 +2399,7 @@ async function tryPubMedAPI(pageSize: number): Promise<NewsAPIArticle[]> {
           retmax: pageSize * 2,
           retmode: 'json',
           sort: 'date',
-          api_key: API_KEY
+          api_key: PUBMED_API_KEY
         },
         timeout: 10000 
       }
@@ -2415,7 +2419,7 @@ async function tryPubMedAPI(pageSize: number): Promise<NewsAPIArticle[]> {
           db: 'pubmed',
           id: ids.join(','),
           retmode: 'json',
-          api_key: API_KEY
+          api_key: PUBMED_API_KEY
         },
         timeout: 10000 
       }
