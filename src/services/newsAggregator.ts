@@ -568,46 +568,40 @@ const CATEGORY_PROVIDER_MAP: Record<CategoryType, ProviderConfig[]> = {
     { name: "saurav", tier: "fallback" },
   ],
   health: [
-    // Global Health RSS Feeds (Unlimited, No API Key)
-    { name: "who-news", tier: "unlimited" },
-    { name: "who-outbreaks", tier: "unlimited" },
-    { name: "cdc-newsroom", tier: "unlimited" },
-    { name: "cdc-travelers", tier: "unlimited" },
-    { name: "medlineplus", tier: "unlimited" },
+    // Reliable Free Health RSS Feeds (Unlimited, No API Key)
     { name: "sciencedaily-health", tier: "unlimited" },
-    { name: "kff-health", tier: "unlimited" },
+    { name: "medlineplus", tier: "unlimited" },
+    { name: "google-news-health", tier: "unlimited" },
     { name: "nih", tier: "unlimited" },
     { name: "cdc-rss", tier: "unlimited" },
-    // Additional Global Health RSS Feeds
-    { name: "harvard-health", tier: "unlimited" },
-    { name: "johns-hopkins-health", tier: "unlimited" },
-    { name: "cleveland-clinic", tier: "unlimited" },
-    { name: "medscape", tier: "unlimited" },
-    { name: "medical-news-today", tier: "unlimited" },
-    { name: "health-news-review", tier: "unlimited" },
-    { name: "reuters-health", tier: "unlimited" },
-    { name: "npr-health", tier: "unlimited" },
-    { name: "bbc-health", tier: "unlimited" },
-    { name: "lancet-health", tier: "unlimited" },
-    // Recommended Health Alternative Sources
-    { name: "medpage-today", tier: "unlimited" },
-    { name: "healthday-full", tier: "unlimited" },
-    { name: "pubmed-central", tier: "unlimited" },
-    { name: "everyday-health-all", tier: "unlimited" },
-    { name: "verywell-health-main", tier: "unlimited" },
-    { name: "google-news-health", tier: "unlimited" },
-    // Bangladesh Health RSS Feeds
-    { name: "dailystar-health", tier: "unlimited" },
-    { name: "bdnews24-health", tier: "unlimited" },
-    { name: "banglanews24-health", tier: "unlimited" },
-    // Other Health Sources
-    { name: "pubmed", tier: "unlimited" },
+    { name: "who-news", tier: "unlimited" },
+    { name: "who-outbreaks", tier: "unlimited" },
+    // Consumer Health Information
     { name: "webmd", tier: "unlimited" },
     { name: "healthline", tier: "unlimited" },
     { name: "mayo-clinic", tier: "unlimited" },
+    { name: "verywell-health-main", tier: "unlimited" },
+    { name: "everyday-health-all", tier: "unlimited" },
+    // Medical News & Research
+    { name: "pubmed-central", tier: "unlimited" },
+    { name: "medpage-today", tier: "unlimited" },
+    { name: "reuters-health", tier: "unlimited" },
+    { name: "npr-health", tier: "unlimited" },
+    { name: "bbc-health", tier: "unlimited" },
+    // Additional Reliable Sources
+    { name: "harvard-health", tier: "unlimited" },
+    { name: "cleveland-clinic", tier: "unlimited" },
+    { name: "healthday-full", tier: "unlimited" },
+    { name: "healthday-full", tier: "unlimited" },
+    // Bangladesh Health RSS Feeds
+    { name: "dailystar-health", tier: "unlimited" },
+    { name: "bdnews24-health", tier: "unlimited" },
+    // Community & Other Sources
+    { name: "pubmed", tier: "unlimited" },
     { name: "reddit", tier: "unlimited", options: { subreddit: "health" } },
     { name: "reddit", tier: "unlimited", options: { subreddit: "medicine" } },
     { name: "reddit", tier: "unlimited", options: { subreddit: "medicalscience" } },
+    // Limited APIs as fallback
     { name: "guardian", tier: "limited" },
     { name: "currents", tier: "limited" },
     { name: "newsdata", tier: "limited" },
