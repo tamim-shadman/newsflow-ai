@@ -8,7 +8,7 @@ const NEWS_API_URL = IS_PRODUCTION ? "/api/news" : null;
 
 // API keys for local development (from .env)
 const NEWSDATA_API_KEY = import.meta.env.NEWSDATA_API_KEY;
-const NEWSDATA_BD_API_KEY = "pub_e7edc2b3b7e44a78b891c814f80a776c"; // Bangladesh news API key
+const NEWSDATA_BD_API_KEY = import.meta.env.NEWSDATA_BD_API_KEY || import.meta.env.NEWSDATA_API_KEY; // Bangladesh news API key (falls back to global key)
 const CURRENTS_API_KEY = import.meta.env.CURRENTS_API_KEY;
 const GNEWS_API_KEY = import.meta.env.GNEWS_API_KEY;
 const GUARDIAN_API_KEY = import.meta.env.GUARDIAN_API_KEY;
@@ -241,6 +241,7 @@ const cache = new Map<string, CacheEntry>();
 const CACHE_TTL = 2 * 60 * 60 * 1000; // 2 hours (7200000 ms) for most categories
 const CACHE_TTL_RSS_HEAVY = 30 * 60 * 1000; // 30 minutes for RSS-heavy categories (Bangladesh, Health)
 const MAX_ARTICLE_AGE = 48 * 60 * 60 * 1000; // 48 hours in milliseconds (increased from 24 hours)
+const MAX_ARTICLE_AGE_RSS_HEAVY = 72 * 60 * 60 * 1000; // 72 hours for RSS-heavy categories needing extended freshness window
 const RSS2JSON_ENDPOINT = "https://api.rss2json.com/v1/api.json";
 
 type ProviderTier = "unlimited" | "limited" | "fallback";
@@ -397,7 +398,7 @@ function blendArticlesBySource(
 }
 
 function mergeAndPrepareArticles(articles: NewsAPIArticle[], category: CategoryType = 'all'): NewsAPIArticle[] {
-  const filtered = filterRecent48Hours(articles);
+  const filtered = filterRecentArticles(articles, category);
   const unique = dedupeArticles(filtered);
   
   // Sort by publish date - LATEST FIRST (newest to oldest)
@@ -659,27 +660,39 @@ const CATEGORY_PROVIDER_MAP: Record<CategoryType, ProviderConfig[]> = {
   ],
 };
 
+function getAgeLimitForCategory(category?: CategoryType | "general"): number {
+  const normalizedCategory = category === "general" ? "all" : category;
+  return normalizedCategory === "bangladesh" || normalizedCategory === "health"
+    ? MAX_ARTICLE_AGE_RSS_HEAVY
+    : MAX_ARTICLE_AGE;
+}
+
+function getFreshnessWindowHours(category?: CategoryType | "general"): number {
+  return Math.round(getAgeLimitForCategory(category) / (60 * 60 * 1000));
+}
+
 /**
- * Filter articles to only include those from last 24 hours
+ * Filter articles to only include those within the freshness window for their category
  */
-function filterRecent48Hours(articles: NewsAPIArticle[]): NewsAPIArticle[] {
+function filterRecentArticles(
+  articles: NewsAPIArticle[],
+  category?: CategoryType | "general"
+): NewsAPIArticle[] {
   const now = Date.now();
+  const ageLimit = getAgeLimitForCategory(category);
+
   return articles.filter(article => {
     if (!article.publishedAt) return false;
     
     try {
       const publishedTime = new Date(article.publishedAt).getTime();
       
-      // Validate date
-      if (isNaN(publishedTime)) return false;
+      if (Number.isNaN(publishedTime)) return false;
       
       const age = now - publishedTime;
-      
-      // Skip articles with future dates (timezone issues, API errors)
       if (age < 0) return false;
       
-      // Only include articles from last 48 hours
-      return age <= MAX_ARTICLE_AGE;
+      return age <= ageLimit;
     } catch (error) {
       console.error("Error parsing article date:", error);
       return false;
@@ -728,7 +741,9 @@ function setCache(key: string, data: NewsAPIArticle[]) {
   // Also store as persistent fallback (never expires)
   persistentFallback.set(key, data);
   
-  console.log(`💾 Cached data for: ${key} (valid for 2 hours)`);
+  const isRSSHeavyKey = key.includes('bangladesh') || key.includes('health');
+  const ttlMinutes = Math.round((isRSSHeavyKey ? CACHE_TTL_RSS_HEAVY : CACHE_TTL) / (60 * 1000));
+  console.log(`💾 Cached data for: ${key} (valid for ${ttlMinutes} minutes)`);
 }
 
 // Get persistent fallback (for when all APIs fail)
@@ -742,72 +757,76 @@ function getPersistentFallback(key: string): NewsAPIArticle[] | null {
 }
 
 /**
- * Fetch Bangladesh news from NewsData.io
+ * Fetch Bangladesh news using multi-source routing prioritizing RSS feeds before limited APIs
  * @param pageSize - Number of articles to fetch
- * @returns Promise with Bangladesh news articles
  */
 export async function fetchBangladeshNews(pageSize: number = 20): Promise<NewsAPIArticle[]> {
   const cacheKey = `bangladesh_news_${pageSize}`;
-  
+
+  const cached = getFromCache(cacheKey);
+  if (cached) {
+    console.log('✅ Using cached Bangladesh news');
+    return cached;
+  }
+
+  console.log('🇧🇩 Fetching Bangladesh news (multi-source pipeline)...');
+
   try {
-    // Check cache first
-    const cached = getFromCache(cacheKey);
-    if (cached) {
-      console.log('✅ Using cached Bangladesh news');
-      return cached;
+    const collectionPageSize = Math.max(pageSize, 20);
+    let collected: NewsAPIArticle[] = [];
+
+    try {
+      collected = await fetchNewsDirectly('bangladesh', collectionPageSize);
+      console.log(`📰 Primary Bangladesh sources returned ${collected.length} articles`);
+    } catch (primaryError) {
+      console.warn('⚠️ Primary Bangladesh pipeline failed:', primaryError instanceof Error ? primaryError.message : primaryError);
     }
 
-    console.log('🇧🇩 Fetching Bangladesh news from NewsData.io...');
-
-    const response = await axios.get(
-      `https://newsdata.io/api/1/news?apikey=${NEWSDATA_BD_API_KEY}&country=bd&language=en`,
-      { timeout: 10000 }
-    );
-
-    if (response.data.status === 'success' && response.data.results) {
-      const articles = response.data.results.slice(0, pageSize).map((article: {
-        creator?: string[];
-        title: string;
-        description?: string;
-        link: string;
-        image_url?: string;
-        pubDate: string;
-        content?: string;
-        source_id?: string;
-        source_name?: string;
-      }) => ({
-        source: { id: article.source_id || "bd-news", name: article.source_name || "Bangladesh News" },
-        author: article.creator?.[0] || "Bangladesh Reporter",
-        title: article.title,
-        description: article.description || article.title,
-        url: article.link,
-        urlToImage: article.image_url || "https://images.unsplash.com/photo-1609137144813-7d9921338f24?w=800&h=600&fit=crop",
-        publishedAt: article.pubDate,
-        content: article.content || article.description,
-      }));
-
-      console.log(`✅ Successfully fetched ${articles.length} Bangladesh news articles`);
-      
-      // Cache the results
-      setCache(cacheKey, articles);
-      
-      return articles;
+    if (collected.length < pageSize) {
+      if (!NEWSDATA_BD_API_KEY && !NEWSDATA_API_KEY) {
+        console.log('🔐 Skipping NewsData.io top-up (missing API key)');
+      } else {
+        const topUp = await tryNewsDataBangladeshAPI(Math.max(pageSize * 2, 20));
+        if (topUp.length > 0) {
+          console.log(`➕ Added ${topUp.length} fallback articles from NewsData.io Bangladesh`);
+          collected = collected.length > 0 ? [...collected, ...topUp] : topUp;
+        }
+      }
     }
 
-    throw new Error('No Bangladesh news data received');
+    if (collected.length === 0) {
+      throw new Error('No Bangladesh news data received from primary sources');
+    }
+
+    const prepared = mergeAndPrepareArticles(collected, 'bangladesh');
+    const blended = blendArticlesBySource(prepared, pageSize);
+    const finalArticles = blended.slice(0, pageSize);
+
+    if (finalArticles.length === 0) {
+      throw new Error('Bangladesh pipeline returned only stale articles');
+    }
+
+    setCache(cacheKey, finalArticles);
+    console.log(`✅ Successfully fetched ${finalArticles.length} Bangladesh news articles`);
+    return finalArticles;
   } catch (error) {
     console.error('❌ Error fetching Bangladesh news:', error);
-    
-    // Fallback to stale cache
+
     const staleCache = cache.get(cacheKey);
     if (staleCache) {
       console.log('⚠️ Using stale cache for Bangladesh news');
       return staleCache.data;
     }
 
-    // Return empty array if all fails
-    console.log('⚠️ No Bangladesh news available');
-    return [];
+    const persistent = getPersistentFallback(cacheKey);
+    if (persistent) {
+      return persistent.slice(0, pageSize);
+    }
+
+    const fallback = getFallbackNews('bangladesh', pageSize);
+    console.log('🆘 Using static fallback for Bangladesh news');
+    setCache(cacheKey, fallback);
+    return fallback;
   }
 }
 
@@ -859,15 +878,16 @@ export async function fetchNewsByCategory(
         });
 
         if (response.data.status === "ok" && response.data.articles) {
-          // Filter articles: valid title AND from last 48 hours
+          // Filter articles: valid title AND within the freshness window
           articles = response.data.articles.filter(
             (article: NewsAPIArticle) =>
               article.title && article.title !== "[Removed]"
           );
           
-          // Apply 48-hour filter and sort by latest first
-          const recentArticles = filterRecent48Hours(articles);
-          console.log(`📅 Filtered ${articles.length} → ${recentArticles.length} articles (last 48 hours)`);
+          // Apply category-specific freshness filter and sort by latest first
+          const recentArticles = filterRecentArticles(articles, category);
+          const freshnessWindowHours = getFreshnessWindowHours(category);
+          console.log(`📅 Filtered ${articles.length} → ${recentArticles.length} articles (last ${freshnessWindowHours} hours)`);
           articles = recentArticles;
         }
       } catch (serverlessError: unknown) {
@@ -883,15 +903,16 @@ export async function fetchNewsByCategory(
     if (!IS_PRODUCTION && articles.length === 0) {
       try {
         const fetchPromise = fetchNewsDirectly(category, pageSize);
-        const timeoutPromise = new Promise<NewsAPIArticle[]>((_, reject) => 
+        const timeoutPromise = new Promise<NewsAPIArticle[]>((_, reject) =>
           setTimeout(() => reject(new Error('Direct fetch timeout')), 8000)
         );
         
         const fetchedArticles = await Promise.race([fetchPromise, timeoutPromise]);
         
-        // Apply 48-hour filter and sort by latest first
-        articles = filterRecent48Hours(fetchedArticles);
-        console.log(`📅 Filtered ${fetchedArticles.length} → ${articles.length} articles (last 48 hours)`);
+        // Apply category-specific freshness filter and sort by latest first
+        articles = filterRecentArticles(fetchedArticles, category);
+        const freshnessWindowHours = getFreshnessWindowHours(category);
+        console.log(`📅 Filtered ${fetchedArticles.length} → ${articles.length} articles (last ${freshnessWindowHours} hours)`);
       } catch (directError: unknown) {
         const errorMsg = directError instanceof Error ? directError.message : 'Unknown error';
         errors.push(`Direct fetch failed: ${errorMsg}`);
@@ -2593,6 +2614,11 @@ async function tryGuardianBangladeshRSSAPI(pageSize: number): Promise<NewsAPIArt
 }
 
 async function tryNewsDataBangladeshAPI(pageSize: number): Promise<NewsAPIArticle[]> {
+  if (!NEWSDATA_BD_API_KEY && !NEWSDATA_API_KEY) {
+    console.log('🔐 Skipping NewsData.io Bangladesh API (missing API key)');
+    return [];
+  }
+
   try {
     console.log('🔄 Trying NewsData.io Bangladesh API...');
     const response = await axios.get('https://newsdata.io/api/1/news', {
