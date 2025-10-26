@@ -297,20 +297,25 @@ async function fetchRSSFeed(rssUrl: string, limit: number): Promise<RSSFeedItem[
   }
 
   try {
+    console.log(`📡 Fetching RSS: ${rssUrl.substring(0, 60)}...`);
     const response = await axios.get(RSS2JSON_ENDPOINT, {
       params,
       timeout: 8000,
       validateStatus: (status) => status < 500, // Don't throw on 4xx errors
     });
     
-    // Return empty for 4xx errors
+    // Log response status
     if (response.status >= 400) {
+      console.warn(`⚠️ RSS feed returned ${response.status}: ${rssUrl}`);
       return [];
     }
     
-    return Array.isArray(response.data?.items) ? response.data.items : [];
+    const items = Array.isArray(response.data?.items) ? response.data.items : [];
+    console.log(`✅ RSS fetched: ${items.length} items from ${rssUrl.substring(0, 40)}...`);
+    return items;
   } catch (error) {
-    // Silently fail for RSS feeds - they're optional unlimited sources
+    // Log error for debugging
+    console.error(`❌ RSS fetch failed: ${rssUrl.substring(0, 40)}...`, error instanceof Error ? error.message : 'Unknown error');
     return [];
   }
 }
