@@ -241,8 +241,8 @@ interface CacheEntry {
 const cache = new Map<string, CacheEntry>();
 const CACHE_TTL = 2 * 60 * 60 * 1000; // 2 hours (7200000 ms) for most categories
 const CACHE_TTL_RSS_HEAVY = 30 * 60 * 1000; // 30 minutes for RSS-heavy categories (Health)
-const MAX_ARTICLE_AGE = 48 * 60 * 60 * 1000; // 48 hours in milliseconds (increased from 24 hours)
-const MAX_ARTICLE_AGE_RSS_HEAVY = 72 * 60 * 60 * 1000; // 72 hours for RSS-heavy categories needing extended freshness window
+const MAX_ARTICLE_AGE = 7 * 24 * 60 * 60 * 1000; // 7 days (much more lenient to trust backend filtering)
+const MAX_ARTICLE_AGE_RSS_HEAVY = 14 * 24 * 60 * 60 * 1000; // 14 days for RSS-heavy categories (trust backend)
 const RSS_PROXY_TIMEOUT = 12000;
 
 type ProviderTier = "unlimited" | "limited" | "fallback";
@@ -393,6 +393,8 @@ function blendArticlesBySource(
 }
 
 function mergeAndPrepareArticles(articles: NewsAPIArticle[], category: CategoryType = 'all'): NewsAPIArticle[] {
+  // Apply very lenient freshness filter (7-14 days) to catch obviously stale articles only
+  // Backend has already done thorough filtering, so this is just a safety net
   const filtered = filterRecentArticles(articles, category);
   const unique = dedupeArticles(filtered);
   
@@ -851,17 +853,14 @@ export async function fetchNewsByCategory(
         });
 
         if (response.data.status === "ok" && response.data.articles) {
-          // Filter articles: valid title AND within the freshness window
+          // Filter articles: valid title only (trust backend filtering)
           articles = response.data.articles.filter(
             (article: NewsAPIArticle) =>
               article.title && article.title !== "[Removed]"
           );
           
-          // Apply category-specific freshness filter and sort by latest first
-          const recentArticles = filterRecentArticles(articles, category);
-          const freshnessWindowHours = getFreshnessWindowHours(category);
-          console.log(`📅 Filtered ${articles.length} → ${recentArticles.length} articles (last ${freshnessWindowHours} hours)`);
-          articles = recentArticles;
+          // Backend has already filtered and sorted, so just apply minimal filtering
+          console.log(`✅ Serverless returned ${articles.length} articles (already filtered by backend)`);
         }
       } catch (serverlessError: unknown) {
         const errorMsg = serverlessError instanceof Error ? serverlessError.message : 'Unknown error';
@@ -882,10 +881,9 @@ export async function fetchNewsByCategory(
         
         const fetchedArticles = await Promise.race([fetchPromise, timeoutPromise]);
         
-        // Apply category-specific freshness filter and sort by latest first
-        articles = filterRecentArticles(fetchedArticles, category);
-        const freshnessWindowHours = getFreshnessWindowHours(category);
-        console.log(`📅 Filtered ${fetchedArticles.length} → ${articles.length} articles (last ${freshnessWindowHours} hours)`);
+        // Trust the direct fetch results (backend has already filtered)
+        articles = fetchedArticles;
+        console.log(`✅ Direct fetch returned ${articles.length} articles (already filtered by backend)`);
       } catch (directError: unknown) {
         const errorMsg = directError instanceof Error ? directError.message : 'Unknown error';
         errors.push(`Direct fetch failed: ${errorMsg}`);
