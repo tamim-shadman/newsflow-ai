@@ -239,10 +239,13 @@ interface CacheEntry {
 }
 
 const cache = new Map<string, CacheEntry>();
-const CACHE_TTL = 2 * 60 * 60 * 1000; // 2 hours (7200000 ms) for most categories
-const CACHE_TTL_RSS_HEAVY = 30 * 60 * 1000; // 30 minutes for RSS-heavy categories (Health)
-const MAX_ARTICLE_AGE = 7 * 24 * 60 * 60 * 1000; // 7 days (much more lenient to trust backend filtering)
-const MAX_ARTICLE_AGE_RSS_HEAVY = 14 * 24 * 60 * 60 * 1000; // 14 days for RSS-heavy categories (trust backend)
+const HOUR_MS = 60 * 60 * 1000;
+const DAY_MS = 24 * HOUR_MS;
+
+const CACHE_TTL = 2 * HOUR_MS; // 2 hours (7200000 ms) for most categories
+const CACHE_TTL_RSS_HEAVY = 0.5 * HOUR_MS; // 30 minutes for RSS-heavy categories (Health)
+const MAX_ARTICLE_AGE = 48 * HOUR_MS; // 48 hours in milliseconds (increased from 24 hours)
+const MAX_ARTICLE_AGE_RSS_HEAVY = 72 * HOUR_MS; // 72 hours for RSS-heavy categories needing extended freshness window
 const RSS_PROXY_TIMEOUT = 12000;
 
 type ProviderTier = "unlimited" | "limited" | "fallback";
@@ -392,10 +395,22 @@ function blendArticlesBySource(
   return result.slice(0, pageSize);
 }
 
-function mergeAndPrepareArticles(articles: NewsAPIArticle[], category: CategoryType = 'all'): NewsAPIArticle[] {
-  // Apply very lenient freshness filter (7-14 days) to catch obviously stale articles only
-  // Backend has already done thorough filtering, so this is just a safety net
-  const filtered = filterRecentArticles(articles, category);
+function mergeAndPrepareArticles(
+  articles: NewsAPIArticle[],
+  category: CategoryType = 'all',
+  pageSize?: number
+): NewsAPIArticle[] {
+  const desiredMinimum = calculateDesiredMinimum(pageSize);
+  const filtered = filterRecentArticles(articles, category, {
+    minCount: desiredMinimum,
+    onWindowApplied: (hours, count, relaxed) => {
+      if (relaxed) {
+        console.log(
+          `📆 Expanded freshness window to ${hours} hours for ${category} (direct fetch) to keep ${count} articles`
+        );
+      }
+    },
+  });
   const unique = dedupeArticles(filtered);
   
   // Sort by publish date - LATEST FIRST (newest to oldest)
@@ -725,36 +740,108 @@ function getAgeLimitForCategory(category?: CategoryType | "general"): number {
 }
 
 function getFreshnessWindowHours(category?: CategoryType | "general"): number {
-  return Math.round(getAgeLimitForCategory(category) / (60 * 60 * 1000));
+  return Math.round(getAgeLimitForCategory(category) / HOUR_MS);
+}
+
+interface FreshnessFilterOptions {
+  minCount?: number;
+  onWindowApplied?: (windowHours: number, count: number, relaxed: boolean) => void;
+}
+
+function calculateDesiredMinimum(pageSize?: number): number {
+  if (!pageSize || Number.isNaN(pageSize)) {
+    return 1;
+  }
+
+  const normalized = Math.max(1, Math.floor(pageSize));
+  const relaxedTarget = Math.max(6, Math.ceil(normalized * 0.6));
+  return Math.min(normalized, relaxedTarget);
+}
+
+function getAgeWindowsForCategory(category?: CategoryType | "general"): number[] {
+  const baseLimit = getAgeLimitForCategory(category);
+  const normalizedCategory = category === "general" ? "all" : category;
+  const windows = [baseLimit];
+
+  if (normalizedCategory === "health") {
+    windows.push(7 * DAY_MS, 14 * DAY_MS, 21 * DAY_MS, 28 * DAY_MS);
+  }
+
+  return Array.from(new Set(windows)).sort((a, b) => a - b);
 }
 
 /**
- * Filter articles to only include those within the freshness window for their category
+ * Filter articles to only include those within the freshness window for their category.
+ * Automatically relaxes the window for RSS-heavy categories when too few fresh items exist.
  */
 function filterRecentArticles(
   articles: NewsAPIArticle[],
-  category?: CategoryType | "general"
+  category?: CategoryType | "general",
+  options: FreshnessFilterOptions = {}
 ): NewsAPIArticle[] {
   const now = Date.now();
-  const ageLimit = getAgeLimitForCategory(category);
+  const baseLimit = getAgeLimitForCategory(category);
+  const windows = getAgeWindowsForCategory(category);
+  const minCount = Math.max(options.minCount ?? 1, 1);
 
-  return articles.filter(article => {
-    if (!article.publishedAt) return false;
-    
+  const prepared = articles.reduce<{ article: NewsAPIArticle; age: number }[]>((acc, article) => {
+    if (!article?.publishedAt) {
+      return acc;
+    }
+
     try {
       const publishedTime = new Date(article.publishedAt).getTime();
-      
-      if (Number.isNaN(publishedTime)) return false;
-      
+      if (Number.isNaN(publishedTime)) {
+        return acc;
+      }
+
       const age = now - publishedTime;
-      if (age < 0) return false;
-      
-      return age <= ageLimit;
+      if (age < 0) {
+        return acc;
+      }
+
+      acc.push({ article, age });
+      return acc;
     } catch (error) {
       console.error("Error parsing article date:", error);
-      return false;
+      return acc;
     }
-  });
+  }, []);
+
+  const initialWindow = windows[0] ?? baseLimit;
+
+  if (prepared.length === 0) {
+    options.onWindowApplied?.(Math.round(initialWindow / HOUR_MS), 0, false);
+    return [];
+  }
+
+  let bestResult: NewsAPIArticle[] = [];
+  let bestWindow = initialWindow;
+
+  for (const windowMs of windows) {
+    const filtered = prepared
+      .filter(item => item.age <= windowMs)
+      .map(item => item.article);
+
+    if (filtered.length > bestResult.length) {
+      bestResult = filtered;
+      bestWindow = windowMs;
+    }
+
+    if (filtered.length >= minCount) {
+      bestResult = filtered;
+      bestWindow = windowMs;
+      break;
+    }
+  }
+
+  options.onWindowApplied?.(
+    Math.round(bestWindow / HOUR_MS),
+    bestResult.length,
+    bestWindow > baseLimit
+  );
+
+  return bestResult;
 }
 
 // Initialize cache with fallback data immediately on load
@@ -853,14 +940,26 @@ export async function fetchNewsByCategory(
         });
 
         if (response.data.status === "ok" && response.data.articles) {
-          // Filter articles: valid title only (trust backend filtering)
+          // Filter articles: valid title AND within the freshness window
           articles = response.data.articles.filter(
             (article: NewsAPIArticle) =>
               article.title && article.title !== "[Removed]"
           );
           
-          // Backend has already filtered and sorted, so just apply minimal filtering
-          console.log(`✅ Serverless returned ${articles.length} articles (already filtered by backend)`);
+          // Apply category-specific freshness filter and sort by latest first
+          const desiredMinimum = calculateDesiredMinimum(pageSize);
+          let appliedFreshnessHours = getFreshnessWindowHours(category);
+          const recentArticles = filterRecentArticles(articles, category, {
+            minCount: desiredMinimum,
+            onWindowApplied: (hours, count, relaxed) => {
+              appliedFreshnessHours = hours;
+              if (relaxed) {
+                console.log(`📆 Relaxed freshness window to ${hours} hours for ${category} (serverless) to retain ${count} articles`);
+              }
+            },
+          });
+          console.log(`📅 Filtered ${articles.length} → ${recentArticles.length} articles (last ${appliedFreshnessHours} hours)`);
+          articles = recentArticles;
         }
       } catch (serverlessError: unknown) {
         const errorMsg = serverlessError instanceof Error ? serverlessError.message : 'Unknown error';
@@ -881,9 +980,19 @@ export async function fetchNewsByCategory(
         
         const fetchedArticles = await Promise.race([fetchPromise, timeoutPromise]);
         
-        // Trust the direct fetch results (backend has already filtered)
-        articles = fetchedArticles;
-        console.log(`✅ Direct fetch returned ${articles.length} articles (already filtered by backend)`);
+        // Apply category-specific freshness filter and sort by latest first
+        const desiredMinimum = calculateDesiredMinimum(pageSize);
+        let appliedFreshnessHours = getFreshnessWindowHours(category);
+        articles = filterRecentArticles(fetchedArticles, category, {
+          minCount: desiredMinimum,
+          onWindowApplied: (hours, count, relaxed) => {
+            appliedFreshnessHours = hours;
+            if (relaxed) {
+              console.log(`📆 Relaxed freshness window to ${hours} hours for ${category} (direct dev fetch) to retain ${count} articles`);
+            }
+          },
+        });
+        console.log(`📅 Filtered ${fetchedArticles.length} → ${articles.length} articles (last ${appliedFreshnessHours} hours)`);
       } catch (directError: unknown) {
         const errorMsg = directError instanceof Error ? directError.message : 'Unknown error';
         errors.push(`Direct fetch failed: ${errorMsg}`);
@@ -1234,7 +1343,7 @@ async function fetchNewsDirectly(
     return [];
   }
 
-  const prepared = mergeAndPrepareArticles(collected, category);
+  const prepared = mergeAndPrepareArticles(collected, category, pageSize);
   const blended = blendArticlesBySource(prepared, pageSize);
 
   return blended;
