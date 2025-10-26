@@ -1,4 +1,5 @@
 import axios from "axios";
+import { XMLParser } from "fast-xml-parser";
 import type { NewsAPIArticle, CategoryType } from "@/types/news";
 
 // Use serverless function for news aggregation in production
@@ -243,6 +244,12 @@ const CACHE_TTL_RSS_HEAVY = 30 * 60 * 1000; // 30 minutes for RSS-heavy categori
 const MAX_ARTICLE_AGE = 48 * 60 * 60 * 1000; // 48 hours in milliseconds (increased from 24 hours)
 const MAX_ARTICLE_AGE_RSS_HEAVY = 72 * 60 * 60 * 1000; // 72 hours for RSS-heavy categories needing extended freshness window
 const RSS2JSON_ENDPOINT = "https://api.rss2json.com/v1/api.json";
+const RSS_XML_PARSER = new XMLParser({
+  ignoreAttributes: false,
+  attributeNamePrefix: "@_",
+  textNodeName: "#text",
+  trimValues: true,
+});
 
 type ProviderTier = "unlimited" | "limited" | "fallback";
 
@@ -250,7 +257,10 @@ type RSSFeedItem = Record<string, unknown>;
 
 interface RSSItemNormalized extends RSSFeedItem {
   title?: string;
-  link?: string;
+  link?:
+    | string
+    | { href?: string; url?: string; [key: string]: unknown }
+    | Array<string | { href?: string; url?: string; [key: string]: unknown }>;
   pubDate?: string;
   description?: string;
   author?: string;
@@ -287,6 +297,204 @@ function toISODate(input?: string | null): string | undefined {
   return parsed.toISOString();
 }
 
+function extractString(value: unknown): string | undefined {
+  if (!value && value !== 0) return undefined;
+  if (typeof value === "string") return value.trim() || undefined;
+  if (typeof value === "number") return value.toString();
+  if (Array.isArray(value)) {
+    for (const entry of value) {
+      const result = extractString(entry);
+      if (result) return result;
+    }
+    return undefined;
+  }
+  if (typeof value === "object") {
+    const candidates = [
+      "#text",
+      "text",
+      "value",
+      "name",
+      "title",
+      "summary",
+      "description",
+      "content",
+      "href",
+      "url",
+      "author",
+      "_text",
+      "_value",
+      "_name",
+    ];
+    for (const key of candidates) {
+      if (key in (value as Record<string, unknown>)) {
+        const result = extractString((value as Record<string, unknown>)[key]);
+        if (result) return result;
+      }
+    }
+  }
+  return undefined;
+}
+
+function resolveLinkFromItem(item: RSSItemNormalized): string | undefined {
+  const { link, guid } = item;
+  if (typeof link === "string" && link.trim()) return link.trim();
+
+  const candidates = Array.isArray(link) ? link : link ? [link] : [];
+  for (const candidate of candidates) {
+    if (!candidate) continue;
+    if (typeof candidate === "string" && candidate.trim()) return candidate.trim();
+    if (typeof candidate === "object") {
+      const asRecord = candidate as Record<string, unknown>;
+      const resolved =
+        extractString(asRecord.href) ||
+        extractString(asRecord.url) ||
+        extractString(asRecord["@_href"]) ||
+        extractString(asRecord["@_url"]);
+      if (resolved) return resolved;
+    }
+  }
+
+  const fallbackGuid = extractString(guid);
+  return fallbackGuid?.startsWith("http") ? fallbackGuid : undefined;
+}
+
+function resolveImageFromItem(item: RSSItemNormalized): string | undefined {
+  if (item.enclosure) {
+    if (typeof item.enclosure === "object") {
+      const enclosure = item.enclosure as Record<string, unknown>;
+      const imageCandidate =
+        extractString(enclosure.link) ||
+        extractString(enclosure.url) ||
+        extractString(enclosure["@_url"]) ||
+        extractString(enclosure["@_href"]);
+      if (imageCandidate) return imageCandidate;
+    }
+  }
+
+  if (item.thumbnail) {
+    const thumb = extractString(item.thumbnail);
+    if (thumb) return thumb;
+  }
+
+  const mediaContent = (item as Record<string, unknown>)["media:content"] ?? (item as Record<string, unknown>)["media"];
+  if (mediaContent) {
+    const entries = Array.isArray(mediaContent) ? mediaContent : [mediaContent];
+    for (const entry of entries) {
+      const candidate = extractString(entry);
+      if (candidate) return candidate;
+      if (typeof entry === "object") {
+        const record = entry as Record<string, unknown>;
+        const resolved =
+          extractString(record.url) ||
+          extractString(record["@_url"]) ||
+          extractString(record["@_href"]) ||
+          extractString(record.value);
+        if (resolved) return resolved;
+      }
+    }
+  }
+
+  const mediaThumb = (item as Record<string, unknown>)["media:thumbnail"];
+  if (mediaThumb) {
+    const resolved = extractString(mediaThumb);
+    if (resolved) return resolved;
+  }
+
+  return undefined;
+}
+
+function extractPublishedDate(item: RSSItemNormalized): string | undefined {
+  return (
+    extractString(item.pubDate) ||
+    extractString((item as Record<string, unknown>).published) ||
+    extractString((item as Record<string, unknown>).updated) ||
+    extractString((item as Record<string, unknown>)["dc:date"]) ||
+    extractString((item as Record<string, unknown>)["dc:created"]) ||
+    extractString((item as Record<string, unknown>).date)
+  );
+}
+
+function buildProxyUrl(url: string): string {
+  try {
+    const parsed = new URL(url);
+    const base = `${parsed.protocol}//${parsed.host}${parsed.pathname || ""}`;
+    let proxied = `https://r.jina.ai/${base}`;
+    if (parsed.search) {
+      proxied += parsed.search.replace("?", "%3F").replace(/&/g, "%26");
+    }
+    if (parsed.hash) {
+      proxied += parsed.hash.replace("#", "%23");
+    }
+    return proxied;
+  } catch {
+    return `https://r.jina.ai/${url}`;
+  }
+}
+
+function extractRSSItemsFromParsed(parsed: unknown): RSSFeedItem[] {
+  if (!parsed || typeof parsed !== "object") return [];
+  const data = parsed as Record<string, unknown>;
+  const channelCandidates: unknown[] = [];
+
+  if (data.rss && typeof data.rss === "object") {
+    const rssObj = data.rss as Record<string, unknown>;
+    if (rssObj.channel) channelCandidates.push(rssObj.channel);
+  }
+
+  if (data.channel) channelCandidates.push(data.channel);
+  if (data.feed) channelCandidates.push(data.feed);
+
+  for (const candidate of channelCandidates) {
+    const channel = Array.isArray(candidate) ? candidate[0] : candidate;
+    if (!channel || typeof channel !== "object") continue;
+    const channelObj = channel as Record<string, unknown>;
+    const items =
+      channelObj.item ||
+      channelObj.items ||
+      channelObj.entry ||
+      channelObj.entries;
+    if (items) {
+      if (Array.isArray(items)) return items as RSSFeedItem[];
+      return [items as RSSFeedItem];
+    }
+  }
+
+  if (data.entry) {
+    return Array.isArray(data.entry) ? (data.entry as RSSFeedItem[]) : [data.entry as RSSFeedItem];
+  }
+
+  return [];
+}
+
+async function fetchRSSFeedDirect(rssUrl: string, limit: number): Promise<RSSFeedItem[]> {
+  try {
+    const proxiedUrl = buildProxyUrl(rssUrl);
+    console.log(`🌐 Direct RSS fetch via proxy: ${proxiedUrl.substring(0, 80)}...`);
+    const response = await axios.get(proxiedUrl, {
+      timeout: 9000,
+      responseType: "text",
+      headers: {
+        "User-Agent": "newsflow-ai/1.0",
+        Accept: "application/xml,text/xml,application/rss+xml,text/plain",
+      },
+      validateStatus: status => status < 500,
+    });
+
+    if (response.status >= 400 || typeof response.data !== "string") {
+      console.warn(`⚠️ Direct RSS fetch returned ${response.status} for ${rssUrl}`);
+      return [];
+    }
+
+    const parsed = RSS_XML_PARSER.parse(response.data);
+    const items = extractRSSItemsFromParsed(parsed).slice(0, limit);
+    console.log(`✅ Direct RSS parsed ${items.length} items from ${rssUrl.substring(0, 60)}...`);
+    return items;
+  } catch (error) {
+    console.error(`❌ Direct RSS fetch failed: ${rssUrl.substring(0, 60)}...`, error instanceof Error ? error.message : "Unknown error");
+    return [];
+  }
+}
+
 async function fetchRSSFeed(rssUrl: string, limit: number): Promise<RSSFeedItem[]> {
   const params: Record<string, string | number> = {
     rss_url: rssUrl,
@@ -296,6 +504,8 @@ async function fetchRSSFeed(rssUrl: string, limit: number): Promise<RSSFeedItem[
   if (RSS2JSON_API_KEY) {
     params.api_key = RSS2JSON_API_KEY;
   }
+
+  let items: RSSFeedItem[] = [];
 
   try {
     console.log(`📡 Fetching RSS: ${rssUrl.substring(0, 60)}...`);
@@ -308,17 +518,24 @@ async function fetchRSSFeed(rssUrl: string, limit: number): Promise<RSSFeedItem[
     // Log response status
     if (response.status >= 400) {
       console.warn(`⚠️ RSS feed returned ${response.status}: ${rssUrl}`);
-      return [];
+    } else {
+      items = Array.isArray(response.data?.items) ? response.data.items : [];
+      if (items.length > 0) {
+        console.log(`✅ RSS fetched: ${items.length} items from ${rssUrl.substring(0, 40)}...`);
+        return items;
+      }
     }
-    
-    const items = Array.isArray(response.data?.items) ? response.data.items : [];
-    console.log(`✅ RSS fetched: ${items.length} items from ${rssUrl.substring(0, 40)}...`);
-    return items;
   } catch (error) {
     // Log error for debugging
     console.error(`❌ RSS fetch failed: ${rssUrl.substring(0, 40)}...`, error instanceof Error ? error.message : 'Unknown error');
-    return [];
   }
+
+  if (items.length === 0) {
+    console.log(`🔁 Falling back to direct RSS parser for ${rssUrl.substring(0, 60)}...`);
+    return fetchRSSFeedDirect(rssUrl, limit);
+  }
+
+  return items;
 }
 
 function dedupeArticles(articles: NewsAPIArticle[]): NewsAPIArticle[] {
@@ -431,22 +648,35 @@ function buildRSSArticles(
 ): NewsAPIArticle[] {
   return items
     .map(item => item as RSSItemNormalized)
-    .filter(item => Boolean(item?.title && item?.link))
-    .map(item => ({
-      source: { id: sourceId, name: sourceName },
-      author: item.author || sourceName,
-      title: item.title ?? sourceName,
-      description: item.description || item.content || item.title || "",
-      url: item.link as string,
-      urlToImage:
-        (item.enclosure?.link && typeof item.enclosure.link === "string"
-          ? item.enclosure.link
-          : item.thumbnail && typeof item.thumbnail === "string"
-            ? item.thumbnail
-            : fallbackImage) || fallbackImage,
-      publishedAt: toISODate(item.pubDate) || new Date().toISOString(),
-      content: (item.content || item.description || null) as string | null,
-    }));
+    .map(item => {
+      const link = resolveLinkFromItem(item);
+      if (!link) return null;
+
+      const title = extractString(item.title) ?? sourceName;
+      const description =
+        extractString(item.description) ||
+        extractString(item.content) ||
+        extractString((item as Record<string, unknown>).summary) ||
+        title;
+      const author =
+        extractString(item.author) ||
+        extractString((item as Record<string, unknown>)["dc:creator"]) ||
+        sourceName;
+      const image = resolveImageFromItem(item) || fallbackImage;
+      const publishedRaw = extractPublishedDate(item);
+
+      return {
+        source: { id: sourceId, name: sourceName },
+        author,
+        title,
+        description,
+        url: link,
+        urlToImage: image || fallbackImage,
+        publishedAt: toISODate(publishedRaw) || new Date().toISOString(),
+        content: extractString(item.content) || description,
+      } satisfies NewsAPIArticle;
+    })
+    .filter((article): article is NewsAPIArticle => Boolean(article?.url && article?.title));
 }
 
 const COMMON_LIMITED_PROVIDERS: ProviderConfig[] = [
