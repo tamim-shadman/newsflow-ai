@@ -24,48 +24,161 @@ const OMDB_API_KEY = import.meta.env.OMDB_API_KEY;
 const RSS2JSON_API_KEY = import.meta.env.RSS2JSON_API_KEY;
 
 // Smart fallback image system - returns different images based on category and article hash
+// Expanded with 20 images per category for maximum variety
 const FALLBACK_IMAGES = {
   technology: [
-    "https://images.unsplash.com/photo-1518770660439-4636190af475?w=800&h=600&fit=crop",
-    "https://images.unsplash.com/photo-1461749280684-dccba630e2f6?w=800&h=600&fit=crop",
-    "https://images.unsplash.com/photo-1488590528505-98d2b5aba04b?w=800&h=600&fit=crop",
-    "https://images.unsplash.com/photo-1550745165-9bc0b252726f?w=800&h=600&fit=crop",
-    "https://images.unsplash.com/photo-1526374965328-7f61d4dc18c5?w=800&h=600&fit=crop",
+    "https://images.unsplash.com/photo-1518770660439-4636190af475?w=800&h=600&fit=crop", // Tech workspace
+    "https://images.unsplash.com/photo-1461749280684-dccba630e2f6?w=800&h=600&fit=crop", // Code
+    "https://images.unsplash.com/photo-1488590528505-98d2b5aba04b?w=800&h=600&fit=crop", // Laptop
+    "https://images.unsplash.com/photo-1550745165-9bc0b252726f?w=800&h=600&fit=crop", // Data center
+    "https://images.unsplash.com/photo-1526374965328-7f61d4dc18c5?w=800&h=600&fit=crop", // Binary code
+    "https://images.unsplash.com/photo-1519389950473-47ba0277781c?w=800&h=600&fit=crop", // Computer setup
+    "https://images.unsplash.com/photo-1504639725590-34d0984388bd?w=800&h=600&fit=crop", // Tech devices
+    "https://images.unsplash.com/photo-1485827404703-89b55fcc595e?w=800&h=600&fit=crop", // Keyboard
+    "https://images.unsplash.com/photo-1451187580459-43490279c0fa?w=800&h=600&fit=crop", // Circuit board
+    "https://images.unsplash.com/photo-1581091226825-a6a2a5aee158?w=800&h=600&fit=crop", // Robot AI
+    "https://images.unsplash.com/photo-1550751827-4bd374c3f58b?w=800&h=600&fit=crop", // Smartphone
+    "https://images.unsplash.com/photo-1535223289827-42f1e9919769?w=800&h=600&fit=crop", // Server
+    "https://images.unsplash.com/photo-1573164713988-8665fc963095?w=800&h=600&fit=crop", // VR headset
+    "https://images.unsplash.com/photo-1560732488-6b0df240254a?w=800&h=600&fit=crop", // Cloud computing
+    "https://images.unsplash.com/photo-1551288049-bebda4e38f71?w=800&h=600&fit=crop", // Analytics
+    "https://images.unsplash.com/photo-1563986768609-322da13575f3?w=800&h=600&fit=crop", // Chip
+    "https://images.unsplash.com/photo-1518432031352-d6fc5c10da5a?w=800&h=600&fit=crop", // Computer screen
+    "https://images.unsplash.com/photo-1558494949-ef010cbdcc31?w=800&h=600&fit=crop", // Blockchain
+    "https://images.unsplash.com/photo-1633356122544-f134324a6cee?w=800&h=600&fit=crop", // 5G
+    "https://images.unsplash.com/photo-1603899122634-f086ca5f5ddd?w=800&h=600&fit=crop", // Cybersecurity
   ],
   sports: [
-    "https://images.unsplash.com/photo-1461896836934-ffe607ba8211?w=800&h=600&fit=crop",
-    "https://images.unsplash.com/photo-1522778119026-d647f0596c20?w=800&h=600&fit=crop",
-    "https://images.unsplash.com/photo-1579952363873-27f3bade9f55?w=800&h=600&fit=crop",
-    "https://images.unsplash.com/photo-1517649763962-0c623066013b?w=800&h=600&fit=crop",
-    "https://images.unsplash.com/photo-1574629810360-7efbbe195018?w=800&h=600&fit=crop",
+    "https://images.unsplash.com/photo-1461896836934-ffe607ba8211?w=800&h=600&fit=crop", // Soccer
+    "https://images.unsplash.com/photo-1522778119026-d647f0596c20?w=800&h=600&fit=crop", // Basketball
+    "https://images.unsplash.com/photo-1579952363873-27f3bade9f55?w=800&h=600&fit=crop", // American football
+    "https://images.unsplash.com/photo-1517649763962-0c623066013b?w=800&h=600&fit=crop", // Baseball
+    "https://images.unsplash.com/photo-1574629810360-7efbbe195018?w=800&h=600&fit=crop", // Tennis
+    "https://images.unsplash.com/photo-1546519638-68e109498ffc?w=800&h=600&fit=crop", // Stadium
+    "https://images.unsplash.com/photo-1587280501635-68a0e82cd5ff?w=800&h=600&fit=crop", // Running
+    "https://images.unsplash.com/photo-1566577739112-5180d4bf9390?w=800&h=600&fit=crop", // Golf
+    "https://images.unsplash.com/photo-1517466787929-bc90951d0974?w=800&h=600&fit=crop", // Volleyball
+    "https://images.unsplash.com/photo-1558618666-fcd25c85cd64?w=800&h=600&fit=crop", // Cricket
+    "https://images.unsplash.com/photo-1551958219-acbc608c6377?w=800&h=600&fit=crop", // Hockey
+    "https://images.unsplash.com/photo-1530549387789-4c1017266635?w=800&h=600&fit=crop", // Rugby
+    "https://images.unsplash.com/photo-1552674605-db6ffd4facb5?w=800&h=600&fit=crop", // Boxing
+    "https://images.unsplash.com/photo-1434648957308-5e6a859697e8?w=800&h=600&fit=crop", // Swimming
+    "https://images.unsplash.com/photo-1541534741688-6078c6bfb5c5?w=800&h=600&fit=crop", // Gym
+    "https://images.unsplash.com/photo-1571902943202-507ec2618e8f?w=800&h=600&fit=crop", // Cycling
+    "https://images.unsplash.com/photo-1483721310020-03333e577078?w=800&h=600&fit=crop", // Racing
+    "https://images.unsplash.com/photo-1569003339405-ea396a5a8a90?w=800&h=600&fit=crop", // Surfing
+    "https://images.unsplash.com/photo-1594911772125-07fc7a2d8d9f?w=800&h=600&fit=crop", // Skiing
+    "https://images.unsplash.com/photo-1596727147705-61a532a659bd?w=800&h=600&fit=crop", // Trophy
   ],
   business: [
-    "https://images.unsplash.com/photo-1611974789855-9c2a0a7236a3?w=800&h=600&fit=crop",
-    "https://images.unsplash.com/photo-1590283603385-17ffb3a7f29f?w=800&h=600&fit=crop",
-    "https://images.unsplash.com/photo-1460925895917-afdab827c52f?w=800&h=600&fit=crop",
-    "https://images.unsplash.com/photo-1554224155-8d04cb21cd6c?w=800&h=600&fit=crop",
-    "https://images.unsplash.com/photo-1507679799987-c73779587ccf?w=800&h=600&fit=crop",
+    "https://images.unsplash.com/photo-1611974789855-9c2a0a7236a3?w=800&h=600&fit=crop", // Stock market
+    "https://images.unsplash.com/photo-1590283603385-17ffb3a7f29f?w=800&h=600&fit=crop", // Finance
+    "https://images.unsplash.com/photo-1460925895917-afdab827c52f?w=800&h=600&fit=crop", // Charts
+    "https://images.unsplash.com/photo-1554224155-8d04cb21cd6c?w=800&h=600&fit=crop", // Business meeting
+    "https://images.unsplash.com/photo-1507679799987-c73779587ccf?w=800&h=600&fit=crop", // Office
+    "https://images.unsplash.com/photo-1486406146926-c627a92ad1ab?w=800&h=600&fit=crop", // Skyscrapers
+    "https://images.unsplash.com/photo-1444653614773-995cb1ef9efa?w=800&h=600&fit=crop", // Money
+    "https://images.unsplash.com/photo-1579621970563-ebec7560ff3e?w=800&h=600&fit=crop", // Entrepreneur
+    "https://images.unsplash.com/photo-1553729459-efe14ef6055d?w=800&h=600&fit=crop", // Handshake
+    "https://images.unsplash.com/photo-1573497620053-ea5300f94f21?w=800&h=600&fit=crop", // Business person
+    "https://images.unsplash.com/photo-1454165804606-c3d57bc86b40?w=800&h=600&fit=crop", // Documents
+    "https://images.unsplash.com/photo-1559526324-593bc073d938?w=800&h=600&fit=crop", // Bitcoin
+    "https://images.unsplash.com/photo-1565120130276-dfbd9a7a3ad7?w=800&h=600&fit=crop", // Trading floor
+    "https://images.unsplash.com/photo-1526304640581-d334cdbbf45e?w=800&h=600&fit=crop", // Globe business
+    "https://images.unsplash.com/photo-1450101499163-c8848c66ca85?w=800&h=600&fit=crop", // Calculator
+    "https://images.unsplash.com/photo-1542744173-8e7e53415bb0?w=800&h=600&fit=crop", // Team
+    "https://images.unsplash.com/photo-1551836022-d5d88e9218df?w=800&h=600&fit=crop", // Investment
+    "https://images.unsplash.com/photo-1587560699334-cc4ff634909a?w=800&h=600&fit=crop", // Corporate
+    "https://images.unsplash.com/photo-1568992687947-868a62a9f521?w=800&h=600&fit=crop", // Banking
+    "https://images.unsplash.com/photo-1561414927-6d86591d0c4f?w=800&h=600&fit=crop", // Credit card
   ],
   health: [
-    "https://images.unsplash.com/photo-1584982751601-97dcc096659c?w=800&h=600&fit=crop",
-    "https://images.unsplash.com/photo-1576091160399-112ba8d25d1d?w=800&h=600&fit=crop",
-    "https://images.unsplash.com/photo-1505751172876-fa1923c5c528?w=800&h=600&fit=crop",
-    "https://images.unsplash.com/photo-1532938911079-1b06ac7ceec7?w=800&h=600&fit=crop",
-    "https://images.unsplash.com/photo-1571019613454-1cb2f99b2d8b?w=800&h=600&fit=crop",
+    "https://images.unsplash.com/photo-1584982751601-97dcc096659c?w=800&h=600&fit=crop", // Stethoscope
+    "https://images.unsplash.com/photo-1576091160399-112ba8d25d1d?w=800&h=600&fit=crop", // Medicine
+    "https://images.unsplash.com/photo-1505751172876-fa1923c5c528?w=800&h=600&fit=crop", // Fruits
+    "https://images.unsplash.com/photo-1532938911079-1b06ac7ceec7?w=800&h=600&fit=crop", // Hospital
+    "https://images.unsplash.com/photo-1571019613454-1cb2f99b2d8b?w=800&h=600&fit=crop", // Medical equipment
+    "https://images.unsplash.com/photo-1559757148-5c350d0d3c56?w=800&h=600&fit=crop", // Pharmacy
+    "https://images.unsplash.com/photo-1666214280557-f1b5022eb634?w=800&h=600&fit=crop", // Doctor
+    "https://images.unsplash.com/photo-1530026405186-ed1f139313f8?w=800&h=600&fit=crop", // Blood pressure
+    "https://images.unsplash.com/photo-1579154204601-01588f351e67?w=800&h=600&fit=crop", // Lab
+    "https://images.unsplash.com/photo-1551190822-a9333d879b1f?w=800&h=600&fit=crop", // Surgery
+    "https://images.unsplash.com/photo-1628348068343-c6a848d2b6dd?w=800&h=600&fit=crop", // Vaccine
+    "https://images.unsplash.com/photo-1581595220892-b0739db3ba8c?w=800&h=600&fit=crop", // Pills
+    "https://images.unsplash.com/photo-1587854692152-cbe660dbde88?w=800&h=600&fit=crop", // Mental health
+    "https://images.unsplash.com/photo-1559757175-0eb30cd8c063?w=800&h=600&fit=crop", // Fitness
+    "https://images.unsplash.com/photo-1505576399279-565b52d4ac71?w=800&h=600&fit=crop", // Nutrition
+    "https://images.unsplash.com/photo-1516574187841-cb9cc2ca948b?w=800&h=600&fit=crop", // Medical research
+    "https://images.unsplash.com/photo-1576671081837-49000212a370?w=800&h=600&fit=crop", // Wellness
+    "https://images.unsplash.com/photo-1600959907703-125ba1374a12?w=800&h=600&fit=crop", // DNA
+    "https://images.unsplash.com/photo-1582719471384-894fbb16e074?w=800&h=600&fit=crop", // Microscope
+    "https://images.unsplash.com/photo-1538108149393-fbbd81895907?w=800&h=600&fit=crop", // Heartbeat
   ],
   entertainment: [
-    "https://images.unsplash.com/photo-1522869635100-9f4c5e86aa37?w=800&h=600&fit=crop",
-    "https://images.unsplash.com/photo-1598899134739-24c46f58b8c0?w=800&h=600&fit=crop",
-    "https://images.unsplash.com/photo-1594908900066-3f47337549d8?w=800&h=600&fit=crop",
-    "https://images.unsplash.com/photo-1574267432644-f610f1f6e6b1?w=800&h=600&fit=crop",
-    "https://images.unsplash.com/photo-1485846234645-a62644f84728?w=800&h=600&fit=crop",
+    "https://images.unsplash.com/photo-1522869635100-9f4c5e86aa37?w=800&h=600&fit=crop", // Movie theater
+    "https://images.unsplash.com/photo-1598899134739-24c46f58b8c0?w=800&h=600&fit=crop", // Popcorn
+    "https://images.unsplash.com/photo-1594908900066-3f47337549d8?w=800&h=600&fit=crop", // Movie camera
+    "https://images.unsplash.com/photo-1574267432644-f610f1f6e6b1?w=800&h=600&fit=crop", // Stage
+    "https://images.unsplash.com/photo-1485846234645-a62644f84728?w=800&h=600&fit=crop", // Concert
+    "https://images.unsplash.com/photo-1493225457124-a3eb161ffa5f?w=800&h=600&fit=crop", // Headphones
+    "https://images.unsplash.com/photo-1511512578047-dfb367046420?w=800&h=600&fit=crop", // Gaming
+    "https://images.unsplash.com/photo-1552820728-8b83bb6b773f?w=800&h=600&fit=crop", // Video game
+    "https://images.unsplash.com/photo-1478720568477-152d9b164e26?w=800&h=600&fit=crop", // Music festival
+    "https://images.unsplash.com/photo-1514525253161-7a46d19cd819?w=800&h=600&fit=crop", // DJ
+    "https://images.unsplash.com/photo-1598488035139-bdbb2231ce04?w=800&h=600&fit=crop", // Streaming
+    "https://images.unsplash.com/photo-1611162617213-7d7a39e9b1d7?w=800&h=600&fit=crop", // Netflix
+    "https://images.unsplash.com/photo-1489599849927-2ee91cede3ba?w=800&h=600&fit=crop", // Guitar
+    "https://images.unsplash.com/photo-1507676184212-d03ab07a01bf?w=800&h=600&fit=crop", // Microphone
+    "https://images.unsplash.com/photo-1517604931442-7e0c8ed2963c?w=800&h=600&fit=crop", // Red carpet
+    "https://images.unsplash.com/photo-1606857521015-7f9fcf423740?w=800&h=600&fit=crop", // Clapperboard
+    "https://images.unsplash.com/photo-1616530940355-351fabd9524b?w=800&h=600&fit=crop", // TV show
+    "https://images.unsplash.com/photo-1575550959106-5a7defe28b56?w=800&h=600&fit=crop", // Award
+    "https://images.unsplash.com/photo-1560169897-fc0cdbdfa4d5?w=800&h=600&fit=crop", // Celebrity
+    "https://images.unsplash.com/photo-1579158386396-78cc45dd6b4f?w=800&h=600&fit=crop", // Theater
   ],
   world: [
-    "https://images.unsplash.com/photo-1504711434969-e33886168f5c?w=800&h=600&fit=crop",
-    "https://images.unsplash.com/photo-1495020689067-958852a7765e?w=800&h=600&fit=crop",
-    "https://images.unsplash.com/photo-1451187580459-43490279c0fa?w=800&h=600&fit=crop",
-    "https://images.unsplash.com/photo-1526778548025-fa2f459cd5c1?w=800&h=600&fit=crop",
-    "https://images.unsplash.com/photo-1569163139394-de4798aa62b4?w=800&h=600&fit=crop",
+    "https://images.unsplash.com/photo-1504711434969-e33886168f5c?w=800&h=600&fit=crop", // Newspaper
+    "https://images.unsplash.com/photo-1495020689067-958852a7765e?w=800&h=600&fit=crop", // Globe
+    "https://images.unsplash.com/photo-1451187580459-43490279c0fa?w=800&h=600&fit=crop", // Earth
+    "https://images.unsplash.com/photo-1526778548025-fa2f459cd5c1?w=800&h=600&fit=crop", // Map
+    "https://images.unsplash.com/photo-1569163139394-de4798aa62b4?w=800&h=600&fit=crop", // City
+    "https://images.unsplash.com/photo-1477959858617-67f85cf4f1df?w=800&h=600&fit=crop", // Skyline
+    "https://images.unsplash.com/photo-1526304640581-d334cdbbf45e?w=800&h=600&fit=crop", // International
+    "https://images.unsplash.com/photo-1588681664899-f142ff2dc9b1?w=800&h=600&fit=crop", // Politics
+    "https://images.unsplash.com/photo-1568602471122-7832951cc4c5?w=800&h=600&fit=crop", // Government
+    "https://images.unsplash.com/photo-1541872703-74c5e44368f9?w=800&h=600&fit=crop", // Flags
+    "https://images.unsplash.com/photo-1589519160732-57fc498494f8?w=800&h=600&fit=crop", // United Nations
+    "https://images.unsplash.com/photo-1524661135-423995f22d0b?w=800&h=600&fit=crop", // Capitol
+    "https://images.unsplash.com/photo-1536440136628-849c177e76a1?w=800&h=600&fit=crop", // Crowd
+    "https://images.unsplash.com/photo-1503376780353-7e6692767b70?w=800&h=600&fit=crop", // Travel
+    "https://images.unsplash.com/photo-1488646953014-85cb44e25828?w=800&h=600&fit=crop", // Landmark
+    "https://images.unsplash.com/photo-1573495627361-d9b87960b12d?w=800&h=600&fit=crop", // Climate
+    "https://images.unsplash.com/photo-1611273426858-450d8e3c9fce?w=800&h=600&fit=crop", // Protest
+    "https://images.unsplash.com/photo-1517048676732-d65bc937f952?w=800&h=600&fit=crop", // Conference
+    "https://images.unsplash.com/photo-1523995462485-3d171b5c8fa9?w=800&h=600&fit=crop", // Peace
+    "https://images.unsplash.com/photo-1558618666-fcd25c85cd64?w=800&h=600&fit=crop", // Diversity
+  ],
+  bangladesh: [
+    "https://images.unsplash.com/photo-1586829135343-132950070391?w=800&h=600&fit=crop", // Bangladesh landscape
+    "https://images.unsplash.com/photo-1524492412937-b28074a5d7da?w=800&h=600&fit=crop", // Dhaka
+    "https://images.unsplash.com/photo-1495020689067-958852a7765e?w=800&h=600&fit=crop", // South Asia
+    "https://images.unsplash.com/photo-1524499982521-1ffd58dd89ea?w=800&h=600&fit=crop", // Traffic
+    "https://images.unsplash.com/photo-1474631245212-32dc3c8310c6?w=800&h=600&fit=crop", // Startup
+    "https://images.unsplash.com/photo-1504439468489-c8920d796a29?w=800&h=600&fit=crop", // Education
+    "https://images.unsplash.com/photo-1609137144813-7d9921338f24?w=800&h=600&fit=crop", // Culture
+    "https://images.unsplash.com/photo-1451187580459-43490279c0fa?w=800&h=600&fit=crop", // Development
+    "https://images.unsplash.com/photo-1526778548025-fa2f459cd5c1?w=800&h=600&fit=crop", // Geography
+    "https://images.unsplash.com/photo-1588681664899-f142ff2dc9b1?w=800&h=600&fit=crop", // News
+    "https://images.unsplash.com/photo-1529156069898-49953e39b3ac?w=800&h=600&fit=crop", // River
+    "https://images.unsplash.com/photo-1578662996442-48f60103fc96?w=800&h=600&fit=crop", // Agriculture
+    "https://images.unsplash.com/photo-1557838923-2985c318be48?w=800&h=600&fit=crop", // Market
+    "https://images.unsplash.com/photo-1569163139394-de4798aa62b4?w=800&h=600&fit=crop", // Urban
+    "https://images.unsplash.com/photo-1581091226825-a6a2a5aee158?w=800&h=600&fit=crop", // Technology
+    "https://images.unsplash.com/photo-1486406146926-c627a92ad1ab?w=800&h=600&fit=crop", // Infrastructure
+    "https://images.unsplash.com/photo-1551836022-d5d88e9218df?w=800&h=600&fit=crop", // Economy
+    "https://images.unsplash.com/photo-1531206715517-5c0ba140b2b8?w=800&h=600&fit=crop", // Community
+    "https://images.unsplash.com/photo-1522202176988-66273c2fd55f?w=800&h=600&fit=crop", // People
+    "https://images.unsplash.com/photo-1523050854058-8df90110c9f1?w=800&h=600&fit=crop", // University
   ],
   general: [
     "https://images.unsplash.com/photo-1504711434969-e33886168f5c?w=800&h=600&fit=crop",
@@ -73,6 +186,21 @@ const FALLBACK_IMAGES = {
     "https://images.unsplash.com/photo-1609137144813-7d9921338f24?w=800&h=600&fit=crop",
     "https://images.unsplash.com/photo-1588681664899-f142ff2dc9b1?w=800&h=600&fit=crop",
     "https://images.unsplash.com/photo-1557838923-2985c318be48?w=800&h=600&fit=crop",
+    "https://images.unsplash.com/photo-1569163139394-de4798aa62b4?w=800&h=600&fit=crop",
+    "https://images.unsplash.com/photo-1451187580459-43490279c0fa?w=800&h=600&fit=crop",
+    "https://images.unsplash.com/photo-1526778548025-fa2f459cd5c1?w=800&h=600&fit=crop",
+    "https://images.unsplash.com/photo-1486406146926-c627a92ad1ab?w=800&h=600&fit=crop",
+    "https://images.unsplash.com/photo-1477959858617-67f85cf4f1df?w=800&h=600&fit=crop",
+    "https://images.unsplash.com/photo-1524492412937-b28074a5d7da?w=800&h=600&fit=crop",
+    "https://images.unsplash.com/photo-1529156069898-49953e39b3ac?w=800&h=600&fit=crop",
+    "https://images.unsplash.com/photo-1589519160732-57fc498494f8?w=800&h=600&fit=crop",
+    "https://images.unsplash.com/photo-1541872703-74c5e44368f9?w=800&h=600&fit=crop",
+    "https://images.unsplash.com/photo-1488646953014-85cb44e25828?w=800&h=600&fit=crop",
+    "https://images.unsplash.com/photo-1503376780353-7e6692767b70?w=800&h=600&fit=crop",
+    "https://images.unsplash.com/photo-1573495627361-d9b87960b12d?w=800&h=600&fit=crop",
+    "https://images.unsplash.com/photo-1517048676732-d65bc937f952?w=800&h=600&fit=crop",
+    "https://images.unsplash.com/photo-1523995462485-3d171b5c8fa9?w=800&h=600&fit=crop",
+    "https://images.unsplash.com/photo-1558618666-fcd25c85cd64?w=800&h=600&fit=crop",
   ],
 };
 
@@ -87,13 +215,17 @@ function hashString(str: string): number {
   return Math.abs(hash);
 }
 
-// Get a unique fallback image based on category and article title
-function getSmartFallbackImage(category: CategoryType | 'general', title: string): string {
-  // Map 'all' and 'general' to the general category images
-  const categoryKey = (category === 'all' || category === 'general') ? 'general' : category;
+// Enhanced smart fallback image - analyzes article content for better matching
+function getSmartFallbackImage(category: CategoryType | 'general', title: string, description?: string): string {
+  // Map 'all' and 'trending' to the general category images
+  const categoryKey = (category === 'all' || category === 'trending' || category === 'general') ? 'general' : category;
   const categoryImages = FALLBACK_IMAGES[categoryKey as keyof typeof FALLBACK_IMAGES] || FALLBACK_IMAGES.general;
-  const hash = hashString(title || "");
+  
+  // Use both title and description for better hash variety
+  const contentToHash = `${title || ''}${description || ''}`;
+  const hash = hashString(contentToHash);
   const index = hash % categoryImages.length;
+  
   return categoryImages[index];
 }
 
@@ -106,7 +238,8 @@ interface CacheEntry {
 }
 
 const cache = new Map<string, CacheEntry>();
-const CACHE_TTL = 2 * 60 * 60 * 1000; // 2 hours (7200000 ms)
+const CACHE_TTL = 2 * 60 * 60 * 1000; // 2 hours (7200000 ms) for most categories
+const CACHE_TTL_RSS_HEAVY = 30 * 60 * 1000; // 30 minutes for RSS-heavy categories (Bangladesh, Health)
 const MAX_ARTICLE_AGE = 24 * 60 * 60 * 1000; // 24 hours in milliseconds
 const RSS2JSON_ENDPOINT = "https://api.rss2json.com/v1/api.json";
 
@@ -263,11 +396,12 @@ function mergeAndPrepareArticles(articles: NewsAPIArticle[], category: CategoryT
   const unique = dedupeArticles(filtered);
   
   // Apply smart fallback images to articles without images
+  // Uses both title and description for better variety
   return unique.map(article => {
     if (!article.urlToImage || article.urlToImage === DEFAULT_FALLBACK_IMAGE) {
       return {
         ...article,
-        urlToImage: getSmartFallbackImage(category, article.title)
+        urlToImage: getSmartFallbackImage(category, article.title, article.description)
       };
     }
     return article;
@@ -312,26 +446,49 @@ const COMMON_LIMITED_PROVIDERS: ProviderConfig[] = [
 
 const CATEGORY_PROVIDER_MAP: Record<CategoryType, ProviderConfig[]> = {
   technology: [
+    // Tech RSS Feeds (Unlimited, No API Key)
+    { name: "techcrunch", tier: "unlimited" },
+    { name: "the-verge", tier: "unlimited" },
+    { name: "wired", tier: "unlimited" },
+    { name: "ars-technica", tier: "unlimited" },
+    { name: "engadget", tier: "unlimited" },
+    { name: "cnet", tier: "unlimited" },
+    { name: "zdnet", tier: "unlimited" },
+    { name: "techmeme", tier: "unlimited" },
+    { name: "google-news-tech", tier: "unlimited" },
+    // Community Sources
     { name: "hackernews", tier: "unlimited" },
     { name: "devto", tier: "unlimited" },
     { name: "lobsters", tier: "unlimited" },
     { name: "github-trending", tier: "unlimited" },
     { name: "reddit", tier: "unlimited", options: { subreddit: "technology" } },
     { name: "slashdot", tier: "unlimited" },
-    { name: "techcrunch", tier: "unlimited" },
-    { name: "the-verge", tier: "unlimited" },
-    { name: "wired", tier: "unlimited" },
-    ...COMMON_LIMITED_PROVIDERS,
+    // Limited APIs as fallback
+    { name: "guardian", tier: "limited" },
+    { name: "currents", tier: "limited" },
+    { name: "gnews", tier: "limited" },
+    { name: "newsdata", tier: "limited" },
+    { name: "saurav", tier: "fallback" },
   ],
   sports: [
+    // Sports RSS Feeds (Unlimited, No API Key)
     { name: "espn", tier: "unlimited" },
-    { name: "reddit", tier: "unlimited", options: { subreddit: "soccer" } },
-    { name: "reddit", tier: "unlimited", options: { subreddit: "nba" } },
-    { name: "reddit", tier: "unlimited", options: { subreddit: "nfl" } },
     { name: "bbc-sport", tier: "unlimited" },
     { name: "sky-sports", tier: "unlimited" },
     { name: "goal", tier: "unlimited" },
     { name: "bleacher-report", tier: "unlimited" },
+    { name: "sports-illustrated", tier: "unlimited" },
+    { name: "fox-sports", tier: "unlimited" },
+    { name: "nba-rss", tier: "unlimited" },
+    { name: "nfl-rss", tier: "unlimited" },
+    { name: "mlb-rss", tier: "unlimited" },
+    { name: "google-news-sports", tier: "unlimited" },
+    // Community Sources
+    { name: "reddit", tier: "unlimited", options: { subreddit: "soccer" } },
+    { name: "reddit", tier: "unlimited", options: { subreddit: "nba" } },
+    { name: "reddit", tier: "unlimited", options: { subreddit: "nfl" } },
+    { name: "reddit", tier: "unlimited", options: { subreddit: "sports" } },
+    // Limited APIs
     { name: "sportsdb", tier: "limited" },
     { name: "guardian", tier: "limited" },
     { name: "currents", tier: "limited" },
@@ -339,13 +496,23 @@ const CATEGORY_PROVIDER_MAP: Record<CategoryType, ProviderConfig[]> = {
     { name: "saurav", tier: "fallback" },
   ],
   business: [
+    // Business/Finance RSS Feeds (Unlimited, No API Key)
     { name: "yahoo", tier: "unlimited" },
     { name: "bloomberg", tier: "unlimited" },
     { name: "reuters-business", tier: "unlimited" },
     { name: "cnbc", tier: "unlimited" },
     { name: "marketwatch", tier: "unlimited" },
+    { name: "financial-times", tier: "unlimited" },
+    { name: "wsj", tier: "unlimited" },
+    { name: "forbes", tier: "unlimited" },
+    { name: "business-insider", tier: "unlimited" },
+    { name: "seeking-alpha", tier: "unlimited" },
+    { name: "google-news-business", tier: "unlimited" },
+    // Community Sources
     { name: "reddit", tier: "unlimited", options: { subreddit: "business" } },
     { name: "reddit", tier: "unlimited", options: { subreddit: "investing" } },
+    { name: "reddit", tier: "unlimited", options: { subreddit: "stocks" } },
+    // Limited APIs
     { name: "marketaux", tier: "limited" },
     { name: "alphavantage", tier: "limited" },
     { name: "guardian", tier: "limited" },
@@ -355,9 +522,21 @@ const CATEGORY_PROVIDER_MAP: Record<CategoryType, ProviderConfig[]> = {
     { name: "saurav", tier: "fallback" },
   ],
   health: [
+    // Global Health RSS Feeds (Unlimited, No API Key)
+    { name: "who-news", tier: "unlimited" },
+    { name: "who-outbreaks", tier: "unlimited" },
+    { name: "cdc-newsroom", tier: "unlimited" },
+    { name: "cdc-travelers", tier: "unlimited" },
+    { name: "medlineplus", tier: "unlimited" },
+    { name: "sciencedaily-health", tier: "unlimited" },
+    { name: "kff-health", tier: "unlimited" },
+    // Bangladesh Health RSS Feeds
+    { name: "dailystar-health", tier: "unlimited" },
+    { name: "bdnews24-health", tier: "unlimited" },
+    { name: "banglanews24-health", tier: "unlimited" },
+    // Existing Health Sources
     { name: "nih", tier: "unlimited" },
     { name: "cdc-rss", tier: "unlimited" },
-    { name: "who-rss", tier: "unlimited" },
     { name: "pubmed", tier: "unlimited" },
     { name: "webmd", tier: "unlimited" },
     { name: "healthline", tier: "unlimited" },
@@ -369,17 +548,29 @@ const CATEGORY_PROVIDER_MAP: Record<CategoryType, ProviderConfig[]> = {
     { name: "saurav", tier: "fallback" },
   ],
   entertainment: [
+    // Entertainment RSS Feeds (Unlimited, No API Key)
+    { name: "variety", tier: "unlimited" },
+    { name: "hollywood-reporter", tier: "unlimited" },
+    { name: "entertainment-weekly", tier: "unlimited" },
+    { name: "deadline", tier: "unlimited" },
+    { name: "rolling-stone", tier: "unlimited" },
+    { name: "billboard", tier: "unlimited" },
+    { name: "ign", tier: "unlimited" },
+    { name: "gamespot", tier: "unlimited" },
+    { name: "polygon", tier: "unlimited" },
+    { name: "google-news-entertainment", tier: "unlimited" },
+    // Movie/TV APIs
     { name: "tmdb", tier: "unlimited" },
     { name: "tvmaze", tier: "unlimited" },
     { name: "itunes", tier: "unlimited" },
     { name: "imdb", tier: "unlimited" },
-    { name: "variety", tier: "unlimited" },
-    { name: "hollywood-reporter", tier: "unlimited" },
-    { name: "entertainment-weekly", tier: "unlimited" },
-    { name: "reddit", tier: "unlimited", options: { subreddit: "movies" } },
-    { name: "reddit", tier: "unlimited", options: { subreddit: "television" } },
     { name: "rottentomatoes", tier: "unlimited" },
     { name: "metacritic", tier: "unlimited" },
+    // Community Sources
+    { name: "reddit", tier: "unlimited", options: { subreddit: "movies" } },
+    { name: "reddit", tier: "unlimited", options: { subreddit: "television" } },
+    { name: "reddit", tier: "unlimited", options: { subreddit: "gaming" } },
+    // Limited APIs
     { name: "guardian", tier: "limited" },
     { name: "currents", tier: "limited" },
     { name: "gnews", tier: "limited" },
@@ -387,6 +578,7 @@ const CATEGORY_PROVIDER_MAP: Record<CategoryType, ProviderConfig[]> = {
     { name: "saurav", tier: "fallback" },
   ],
   world: [
+    // World News RSS Feeds (Unlimited, No API Key)
     { name: "bbc-rss", tier: "unlimited" },
     { name: "reuters-rss", tier: "unlimited" },
     { name: "aljazeera", tier: "unlimited" },
@@ -395,37 +587,59 @@ const CATEGORY_PROVIDER_MAP: Record<CategoryType, ProviderConfig[]> = {
     { name: "france24", tier: "unlimited" },
     { name: "dw", tier: "unlimited" },
     { name: "un-news", tier: "unlimited" },
+    { name: "ap-news", tier: "unlimited" },
+    { name: "pbs-news", tier: "unlimited" },
+    { name: "abc-news", tier: "unlimited" },
+    { name: "google-news-world", tier: "unlimited" },
+    // Community Sources
     { name: "reddit", tier: "unlimited", options: { subreddit: "worldnews" } },
+    { name: "reddit", tier: "unlimited", options: { subreddit: "geopolitics" } },
+    // Limited APIs
     { name: "guardian", tier: "limited" },
     { name: "currents", tier: "limited" },
     { name: "newsdata", tier: "limited" },
     { name: "saurav", tier: "fallback" },
   ],
   bangladesh: [
+    // Primary Bangladesh RSS Feeds (Unlimited, No API Key)
+    { name: "dailystar-bd", tier: "unlimited" },
+    { name: "banglanews24", tier: "unlimited" },
+    { name: "prothomalo-en", tier: "unlimited" },
+    { name: "dhakatribune", tier: "unlimited" },
+    { name: "bdnews24", tier: "unlimited" },
+    { name: "bangladeshjournal", tier: "unlimited" },
+    { name: "hindustantimes-bangla", tier: "unlimited" },
+    { name: "google-news-bangladesh", tier: "unlimited" },
+    // International Coverage
     { name: "bbc-bangladesh", tier: "unlimited" },
     { name: "guardian-bangladesh", tier: "unlimited" },
     { name: "aljazeera", tier: "unlimited" },
+    // Limited APIs as fallback
     { name: "newsdata-bangladesh", tier: "limited" },
     { name: "currents", tier: "limited" },
     { name: "saurav", tier: "fallback" },
   ],
   trending: [
-    { name: "guardian", tier: "limited" },
+    { name: "google-news-world", tier: "unlimited" },
     { name: "reddit", tier: "unlimited", options: { subreddit: "news" } },
     { name: "hackernews", tier: "unlimited" },
     { name: "bbc-rss", tier: "unlimited" },
     { name: "cnn", tier: "unlimited" },
+    { name: "guardian", tier: "limited" },
     { name: "currents", tier: "limited" },
     { name: "gnews", tier: "limited" },
     { name: "newsdata", tier: "limited" },
     { name: "saurav", tier: "fallback" },
   ],
   all: [
-    { name: "guardian", tier: "limited" },
+    { name: "google-news-world", tier: "unlimited" },
     { name: "bbc-rss", tier: "unlimited" },
     { name: "cnn", tier: "unlimited" },
     { name: "npr", tier: "unlimited" },
+    { name: "reuters-rss", tier: "unlimited" },
+    { name: "aljazeera", tier: "unlimited" },
     { name: "reddit", tier: "unlimited", options: { subreddit: "news" } },
+    { name: "guardian", tier: "limited" },
     { name: "currents", tier: "limited" },
     { name: "gnews", tier: "limited" },
     { name: "newsdata", tier: "limited" },
@@ -441,10 +655,23 @@ function filterRecent24Hours(articles: NewsAPIArticle[]): NewsAPIArticle[] {
   return articles.filter(article => {
     if (!article.publishedAt) return false;
     
-    const publishedTime = new Date(article.publishedAt).getTime();
-    const age = now - publishedTime;
-    
-    return age <= MAX_ARTICLE_AGE;
+    try {
+      const publishedTime = new Date(article.publishedAt).getTime();
+      
+      // Validate date
+      if (isNaN(publishedTime)) return false;
+      
+      const age = now - publishedTime;
+      
+      // Skip articles with future dates (timezone issues, API errors)
+      if (age < 0) return false;
+      
+      // Only include articles from last 24 hours
+      return age <= MAX_ARTICLE_AGE;
+    } catch (error) {
+      console.error("Error parsing article date:", error);
+      return false;
+    }
   });
 }
 
@@ -460,15 +687,22 @@ function getFromCache(key: string): NewsAPIArticle[] | null {
   const entry = cache.get(key);
   if (!entry) return null;
   
-  const isExpired = Date.now() - entry.timestamp > CACHE_TTL;
+  // Use shorter TTL for RSS-heavy categories (Bangladesh, Health)
+  const isRSSHeavy = key.includes('bangladesh') || key.includes('health');
+  const ttl = isRSSHeavy ? CACHE_TTL_RSS_HEAVY : CACHE_TTL;
+  
+  const isExpired = Date.now() - entry.timestamp > ttl;
   if (isExpired) {
-    console.log(`⏰ Cache expired for: ${key} (age: ${Math.floor((Date.now() - entry.timestamp) / 1000 / 60)} minutes)`);
+    const minutesOld = Math.floor((Date.now() - entry.timestamp) / 1000 / 60);
+    const ttlMinutes = isRSSHeavy ? 30 : 120;
+    console.log(`⏰ Cache expired for: ${key} (age: ${minutesOld} minutes, TTL: ${ttlMinutes} min)`);
     cache.delete(key);
     return null;
   }
   
   const minutesOld = Math.floor((Date.now() - entry.timestamp) / 1000 / 60);
-  console.log(`✅ Cache hit for: ${key} (age: ${minutesOld} minutes, fresh for ${120 - minutesOld} more minutes)`);
+  const ttlMinutes = isRSSHeavy ? 30 : 120;
+  console.log(`✅ Cache hit for: ${key} (age: ${minutesOld} minutes, fresh for ${ttlMinutes - minutesOld} more minutes)`);
   return entry.data;
 }
 
@@ -1077,6 +1311,18 @@ async function tryAPI(
       return await tryTheVergeRSSAPI(pageSize);
     case 'wired':
       return await tryWiredRSSAPI(pageSize);
+    case 'ars-technica':
+      return await tryArsTechnicaRSSAPI(pageSize);
+    case 'engadget':
+      return await tryEngadgetRSSAPI(pageSize);
+    case 'cnet':
+      return await tryCNETRSSAPI(pageSize);
+    case 'zdnet':
+      return await tryZDNetRSSAPI(pageSize);
+    case 'techmeme':
+      return await tryTechmemeRSSAPI(pageSize);
+    case 'google-news-tech':
+      return await tryGoogleNewsTechRSSAPI(pageSize);
     case 'reddit':
       return await tryRedditAPI(options.subreddit as string | undefined, pageSize);
     
@@ -1093,6 +1339,18 @@ async function tryAPI(
       return await tryGoalRSSAPI(pageSize);
     case 'bleacher-report':
       return await tryBleacherReportRSSAPI(pageSize);
+    case 'sports-illustrated':
+      return await trySportsIllustratedRSSAPI(pageSize);
+    case 'fox-sports':
+      return await tryFoxSportsRSSAPI(pageSize);
+    case 'nba-rss':
+      return await tryNBARSSAPI(pageSize);
+    case 'nfl-rss':
+      return await tryNFLRSSAPI(pageSize);
+    case 'mlb-rss':
+      return await tryMLBRSSAPI(pageSize);
+    case 'google-news-sports':
+      return await tryGoogleNewsSportsRSSAPI(pageSize);
     
     // Business APIs
     case 'alphavantage':
@@ -1109,6 +1367,18 @@ async function tryAPI(
       return await tryCNBCRSSAPI(pageSize);
     case 'marketwatch':
       return await tryMarketWatchRSSAPI(pageSize);
+    case 'financial-times':
+      return await tryFinancialTimesRSSAPI(pageSize);
+    case 'wsj':
+      return await tryWSJRSSAPI(pageSize);
+    case 'forbes':
+      return await tryForbesRSSAPI(pageSize);
+    case 'business-insider':
+      return await tryBusinessInsiderRSSAPI(pageSize);
+    case 'seeking-alpha':
+      return await trySeekingAlphaRSSAPI(pageSize);
+    case 'google-news-business':
+      return await tryGoogleNewsBusinessRSSAPI(pageSize);
     
     // Health APIs
     case 'pubmed':
@@ -1117,8 +1387,6 @@ async function tryAPI(
       return await tryCDCRSSAPI(pageSize);
     case 'nih':
       return await tryNIHRSSAPI(pageSize);
-    case 'who-rss':
-      return await tryWHORSSAPI(pageSize);
     case 'webmd':
       return await tryWebMDRSSAPI(pageSize);
     case 'healthline':
@@ -1145,6 +1413,20 @@ async function tryAPI(
       return await tryRottenTomatoesRSSAPI(pageSize);
     case 'metacritic':
       return await tryMetacriticRSSAPI(pageSize);
+    case 'deadline':
+      return await tryDeadlineRSSAPI(pageSize);
+    case 'rolling-stone':
+      return await tryRollingStoneRSSAPI(pageSize);
+    case 'billboard':
+      return await tryBillboardRSSAPI(pageSize);
+    case 'ign':
+      return await tryIGNRSSAPI(pageSize);
+    case 'gamespot':
+      return await tryGameSpotRSSAPI(pageSize);
+    case 'polygon':
+      return await tryPolygonRSSAPI(pageSize);
+    case 'google-news-entertainment':
+      return await tryGoogleNewsEntertainmentRSSAPI(pageSize);
     
     // World News RSS APIs
     case 'bbc-rss':
@@ -1163,12 +1445,60 @@ async function tryAPI(
       return await tryUNNewsRSSAPI(pageSize);
     case 'aljazeera':
       return await tryAlJazeeraRSSAPI(pageSize);
+    case 'ap-news':
+      return await tryAPNewsRSSAPI(pageSize);
+    case 'pbs-news':
+      return await tryPBSNewsRSSAPI(pageSize);
+    case 'abc-news':
+      return await tryABCNewsRSSAPI(pageSize);
+    case 'google-news-world':
+      return await tryGoogleNewsWorldRSSAPI(pageSize);
+    
+    // Bangladesh RSS Feeds (Unlimited)
+    case 'dailystar-bd':
+      return await tryDailyStarBDRSSAPI(pageSize);
+    case 'banglanews24':
+      return await tryBanglanews24RSSAPI(pageSize);
+    case 'prothomalo-en':
+      return await tryProthomAloEnRSSAPI(pageSize);
+    case 'dhakatribune':
+      return await tryDhakaTribuneRSSAPI(pageSize);
+    case 'bdnews24':
+      return await tryBDNews24RSSAPI(pageSize);
+    case 'bangladeshjournal':
+      return await tryBangladeshJournalRSSAPI(pageSize);
+    case 'hindustantimes-bangla':
+      return await tryHindustanTimesBanglaRSSAPI(pageSize);
+    case 'google-news-bangladesh':
+      return await tryGoogleNewsBangladeshRSSAPI(pageSize);
     case 'bbc-bangladesh':
       return await tryBBCBangladeshRSSAPI(pageSize);
     case 'guardian-bangladesh':
       return await tryGuardianBangladeshRSSAPI(pageSize);
     case 'newsdata-bangladesh':
       return await tryNewsDataBangladeshAPI(pageSize);
+    
+    // Health RSS Feeds (Unlimited)
+    case 'who-news':
+      return await tryWHONewsRSSAPI(pageSize);
+    case 'who-outbreaks':
+      return await tryWHOOutbreaksRSSAPI(pageSize);
+    case 'cdc-newsroom':
+      return await tryCDCNewsroomRSSAPI(pageSize);
+    case 'cdc-travelers':
+      return await tryCDCTravelersRSSAPI(pageSize);
+    case 'medlineplus':
+      return await tryMedlinePlusRSSAPI(pageSize);
+    case 'sciencedaily-health':
+      return await tryScienceDailyHealthRSSAPI(pageSize);
+    case 'kff-health':
+      return await tryKFFHealthRSSAPI(pageSize);
+    case 'dailystar-health':
+      return await tryDailyStarHealthRSSAPI(pageSize);
+    case 'bdnews24-health':
+      return await tryBDNews24HealthRSSAPI(pageSize);
+    case 'banglanews24-health':
+      return await tryBanglanews24HealthRSSAPI(pageSize);
     
     default:
       console.warn(`⚠️ Unknown API: ${apiName}`);
@@ -1912,14 +2242,6 @@ async function tryNIHRSSAPI(pageSize: number): Promise<NewsAPIArticle[]> {
   }).slice(0, pageSize);
 }
 
-async function tryWHORSSAPI(pageSize: number): Promise<NewsAPIArticle[]> {
-  const items = await fetchRSSFeed('https://www.who.int/rss-feeds/news-english.xml', pageSize);
-  return buildRSSArticles(items, {
-    sourceId: 'who',
-    sourceName: 'WHO News',
-  }).slice(0, pageSize);
-}
-
 async function tryWebMDRSSAPI(pageSize: number): Promise<NewsAPIArticle[]> {
   const items = await fetchRSSFeed('https://rssfeeds.webmd.com/rss/rss.aspx?RSSSource=RSS_PUBLIC', pageSize);
   return buildRSSArticles(items, {
@@ -2262,6 +2584,464 @@ async function tryNewsDataBangladeshAPI(pageSize: number): Promise<NewsAPIArticl
     console.error('❌ NewsData.io Bangladesh failed:', error);
     return [];
   }
+}
+
+// ============================================================================
+// NEW BANGLADESH RSS FEEDS (Unlimited, No API Key)
+// ============================================================================
+
+async function tryDailyStarBDRSSAPI(pageSize: number): Promise<NewsAPIArticle[]> {
+  const items = await fetchRSSFeed('https://newsindex.fahadahammed.com/feed/get_feed_data/thedailystar/feed.xml', pageSize);
+  return buildRSSArticles(items, {
+    sourceId: 'dailystar-bd',
+    sourceName: 'The Daily Star',
+    fallbackImage: 'https://images.unsplash.com/photo-1586829135343-132950070391?w=800&h=600&fit=crop',
+  }).slice(0, pageSize);
+}
+
+async function tryBanglanews24RSSAPI(pageSize: number): Promise<NewsAPIArticle[]> {
+  const items = await fetchRSSFeed('https://www.banglanews24.com/rss.xml', pageSize);
+  return buildRSSArticles(items, {
+    sourceId: 'banglanews24',
+    sourceName: 'Banglanews24',
+    fallbackImage: 'https://images.unsplash.com/photo-1524492412937-b28074a5d7da?w=800&h=600&fit=crop',
+  }).slice(0, pageSize);
+}
+
+async function tryProthomAloEnRSSAPI(pageSize: number): Promise<NewsAPIArticle[]> {
+  const items = await fetchRSSFeed('https://en.prothomalo.com/feed', pageSize);
+  return buildRSSArticles(items, {
+    sourceId: 'prothomalo-en',
+    sourceName: 'Prothom Alo',
+    fallbackImage: 'https://images.unsplash.com/photo-1495020689067-958852a7765e?w=800&h=600&fit=crop',
+  }).slice(0, pageSize);
+}
+
+async function tryDhakaTribuneRSSAPI(pageSize: number): Promise<NewsAPIArticle[]> {
+  const items = await fetchRSSFeed('https://www.dhakatribune.com/feed', pageSize);
+  return buildRSSArticles(items, {
+    sourceId: 'dhakatribune',
+    sourceName: 'Dhaka Tribune',
+    fallbackImage: 'https://images.unsplash.com/photo-1504711434969-e33886168f5c?w=800&h=600&fit=crop',
+  }).slice(0, pageSize);
+}
+
+async function tryBDNews24RSSAPI(pageSize: number): Promise<NewsAPIArticle[]> {
+  const items = await fetchRSSFeed('https://bangla.bdnews24.com/feed', pageSize);
+  return buildRSSArticles(items, {
+    sourceId: 'bdnews24',
+    sourceName: 'bdnews24.com',
+    fallbackImage: 'https://images.unsplash.com/photo-1451187580459-43490279c0fa?w=800&h=600&fit=crop',
+  }).slice(0, pageSize);
+}
+
+async function tryBangladeshJournalRSSAPI(pageSize: number): Promise<NewsAPIArticle[]> {
+  const items = await fetchRSSFeed('https://bd-journal.com/feed/latest-rss', pageSize);
+  return buildRSSArticles(items, {
+    sourceId: 'bangladeshjournal',
+    sourceName: 'Bangladesh Journal',
+    fallbackImage: 'https://images.unsplash.com/photo-1526778548025-fa2f459cd5c1?w=800&h=600&fit=crop',
+  }).slice(0, pageSize);
+}
+
+async function tryHindustanTimesBanglaRSSAPI(pageSize: number): Promise<NewsAPIArticle[]> {
+  const items = await fetchRSSFeed('https://bangla.hindustantimes.com/rss/nation-and-world', pageSize);
+  return buildRSSArticles(items, {
+    sourceId: 'hindustantimes-bangla',
+    sourceName: 'Hindustan Times Bangla',
+    fallbackImage: 'https://images.unsplash.com/photo-1609137144813-7d9921338f24?w=800&h=600&fit=crop',
+  }).slice(0, pageSize);
+}
+
+async function tryGoogleNewsBangladeshRSSAPI(pageSize: number): Promise<NewsAPIArticle[]> {
+  const items = await fetchRSSFeed('https://news.google.com/rss/search?q=bangladesh&hl=en-BD&gl=BD&ceid=BD:en', pageSize);
+  return buildRSSArticles(items, {
+    sourceId: 'google-news-bd',
+    sourceName: 'Google News Bangladesh',
+    fallbackImage: 'https://images.unsplash.com/photo-1588681664899-f142ff2dc9b1?w=800&h=600&fit=crop',
+  }).slice(0, pageSize);
+}
+
+async function tryGoogleNewsWorldRSSAPI(pageSize: number): Promise<NewsAPIArticle[]> {
+  const items = await fetchRSSFeed('https://news.google.com/rss?hl=en-US&gl=US&ceid=US:en', pageSize);
+  return buildRSSArticles(items, {
+    sourceId: 'google-news-world',
+    sourceName: 'Google News',
+    fallbackImage: 'https://images.unsplash.com/photo-1504711434969-e33886168f5c?w=800&h=600&fit=crop',
+  }).slice(0, pageSize);
+}
+
+// ============================================================================
+// NEW HEALTH RSS FEEDS (Unlimited, No API Key)
+// ============================================================================
+
+async function tryWHONewsRSSAPI(pageSize: number): Promise<NewsAPIArticle[]> {
+  const items = await fetchRSSFeed('https://www.who.int/rss-feeds/news-english.xml', pageSize);
+  return buildRSSArticles(items, {
+    sourceId: 'who-news',
+    sourceName: 'World Health Organization',
+    fallbackImage: 'https://images.unsplash.com/photo-1584982751601-97dcc096659c?w=800&h=600&fit=crop',
+  }).slice(0, pageSize);
+}
+
+async function tryWHOOutbreaksRSSAPI(pageSize: number): Promise<NewsAPIArticle[]> {
+  const items = await fetchRSSFeed('https://www.who.int/feeds/entity/csr/don/en/rss.xml', pageSize);
+  return buildRSSArticles(items, {
+    sourceId: 'who-outbreaks',
+    sourceName: 'WHO Disease Outbreaks',
+    fallbackImage: 'https://images.unsplash.com/photo-1576091160399-112ba8d25d1d?w=800&h=600&fit=crop',
+  }).slice(0, pageSize);
+}
+
+async function tryCDCNewsroomRSSAPI(pageSize: number): Promise<NewsAPIArticle[]> {
+  const items = await fetchRSSFeed('https://tools.cdc.gov/api/v2/resources/media/132608.rss', pageSize);
+  return buildRSSArticles(items, {
+    sourceId: 'cdc-newsroom',
+    sourceName: 'CDC Newsroom',
+    fallbackImage: 'https://images.unsplash.com/photo-1505751172876-fa1923c5c528?w=800&h=600&fit=crop',
+  }).slice(0, pageSize);
+}
+
+async function tryCDCTravelersRSSAPI(pageSize: number): Promise<NewsAPIArticle[]> {
+  const items = await fetchRSSFeed('https://wwwnc.cdc.gov/travel/notices.rss', pageSize);
+  return buildRSSArticles(items, {
+    sourceId: 'cdc-travelers',
+    sourceName: 'CDC Travelers Health',
+    fallbackImage: 'https://images.unsplash.com/photo-1532938911079-1b06ac7ceec7?w=800&h=600&fit=crop',
+  }).slice(0, pageSize);
+}
+
+async function tryMedlinePlusRSSAPI(pageSize: number): Promise<NewsAPIArticle[]> {
+  const items = await fetchRSSFeed('https://medlineplus.gov/rss.xml', pageSize);
+  return buildRSSArticles(items, {
+    sourceId: 'medlineplus',
+    sourceName: 'MedlinePlus',
+    fallbackImage: 'https://images.unsplash.com/photo-1571019613454-1cb2f99b2d8b?w=800&h=600&fit=crop',
+  }).slice(0, pageSize);
+}
+
+async function tryScienceDailyHealthRSSAPI(pageSize: number): Promise<NewsAPIArticle[]> {
+  const items = await fetchRSSFeed('https://www.sciencedaily.com/rss/top/health.xml', pageSize);
+  return buildRSSArticles(items, {
+    sourceId: 'sciencedaily-health',
+    sourceName: 'ScienceDaily Health',
+    fallbackImage: 'https://images.unsplash.com/photo-1579154204601-01588f351e67?w=800&h=600&fit=crop',
+  }).slice(0, pageSize);
+}
+
+async function tryKFFHealthRSSAPI(pageSize: number): Promise<NewsAPIArticle[]> {
+  const items = await fetchRSSFeed('https://kffhealthnews.org/topics/public-health/feed/', pageSize);
+  return buildRSSArticles(items, {
+    sourceId: 'kff-health',
+    sourceName: 'KFF Health News',
+    fallbackImage: 'https://images.unsplash.com/photo-1530026405186-ed1f139313f8?w=800&h=600&fit=crop',
+  }).slice(0, pageSize);
+}
+
+// Bangladesh Health RSS Feeds
+async function tryDailyStarHealthRSSAPI(pageSize: number): Promise<NewsAPIArticle[]> {
+  const items = await fetchRSSFeed('https://www.thedailystar.net/health/rss.xml', pageSize);
+  return buildRSSArticles(items, {
+    sourceId: 'dailystar-health',
+    sourceName: 'The Daily Star Health',
+    fallbackImage: 'https://images.unsplash.com/photo-1559757148-5c350d0d3c56?w=800&h=600&fit=crop',
+  }).slice(0, pageSize);
+}
+
+async function tryBDNews24HealthRSSAPI(pageSize: number): Promise<NewsAPIArticle[]> {
+  const items = await fetchRSSFeed('https://bangla.bdnews24.com/health/feed', pageSize);
+  return buildRSSArticles(items, {
+    sourceId: 'bdnews24-health',
+    sourceName: 'bdnews24 Health',
+    fallbackImage: 'https://images.unsplash.com/photo-1551190822-a9333d879b1f?w=800&h=600&fit=crop',
+  }).slice(0, pageSize);
+}
+
+async function tryBanglanews24HealthRSSAPI(pageSize: number): Promise<NewsAPIArticle[]> {
+  // Banglanews24 has general RSS, we'll filter for health content
+  const items = await fetchRSSFeed('https://www.banglanews24.com/rss.xml', Math.min(pageSize * 3, 50));
+  const healthItems = items.filter((item: RSSItemNormalized) => {
+    const text = `${item.title} ${item.description}`.toLowerCase();
+    return text.includes('health') || text.includes('medical') || text.includes('hospital') || 
+           text.includes('doctor') || text.includes('disease') || text.includes('vaccine');
+  });
+  return buildRSSArticles(healthItems.slice(0, pageSize), {
+    sourceId: 'banglanews24-health',
+    sourceName: 'Banglanews24 Health',
+    fallbackImage: 'https://images.unsplash.com/photo-1666214280557-f1b5022eb634?w=800&h=600&fit=crop',
+  }).slice(0, pageSize);
+}
+
+// ============================================================================
+// TECHNOLOGY RSS FEEDS (Additional Sources)
+// ============================================================================
+
+async function tryArsTechnicaRSSAPI(pageSize: number): Promise<NewsAPIArticle[]> {
+  const items = await fetchRSSFeed('https://feeds.arstechnica.com/arstechnica/index', pageSize);
+  return buildRSSArticles(items, {
+    sourceId: 'ars-technica',
+    sourceName: 'Ars Technica',
+    fallbackImage: 'https://images.unsplash.com/photo-1518770660439-4636190af475?w=800&h=600&fit=crop',
+  }).slice(0, pageSize);
+}
+
+async function tryEngadgetRSSAPI(pageSize: number): Promise<NewsAPIArticle[]> {
+  const items = await fetchRSSFeed('https://www.engadget.com/rss.xml', pageSize);
+  return buildRSSArticles(items, {
+    sourceId: 'engadget',
+    sourceName: 'Engadget',
+    fallbackImage: 'https://images.unsplash.com/photo-1488590528505-98d2b5aba04b?w=800&h=600&fit=crop',
+  }).slice(0, pageSize);
+}
+
+async function tryCNETRSSAPI(pageSize: number): Promise<NewsAPIArticle[]> {
+  const items = await fetchRSSFeed('https://www.cnet.com/rss/news/', pageSize);
+  return buildRSSArticles(items, {
+    sourceId: 'cnet',
+    sourceName: 'CNET',
+    fallbackImage: 'https://images.unsplash.com/photo-1550745165-9bc0b252726f?w=800&h=600&fit=crop',
+  }).slice(0, pageSize);
+}
+
+async function tryZDNetRSSAPI(pageSize: number): Promise<NewsAPIArticle[]> {
+  const items = await fetchRSSFeed('https://www.zdnet.com/news/rss.xml', pageSize);
+  return buildRSSArticles(items, {
+    sourceId: 'zdnet',
+    sourceName: 'ZDNet',
+    fallbackImage: 'https://images.unsplash.com/photo-1526374965328-7f61d4dc18c5?w=800&h=600&fit=crop',
+  }).slice(0, pageSize);
+}
+
+async function tryTechmemeRSSAPI(pageSize: number): Promise<NewsAPIArticle[]> {
+  const items = await fetchRSSFeed('https://www.techmeme.com/feed.xml', pageSize);
+  return buildRSSArticles(items, {
+    sourceId: 'techmeme',
+    sourceName: 'Techmeme',
+    fallbackImage: 'https://images.unsplash.com/photo-1451187580459-43490279c0fa?w=800&h=600&fit=crop',
+  }).slice(0, pageSize);
+}
+
+async function tryGoogleNewsTechRSSAPI(pageSize: number): Promise<NewsAPIArticle[]> {
+  const items = await fetchRSSFeed('https://news.google.com/rss/search?q=technology&hl=en-US&gl=US&ceid=US:en', pageSize);
+  return buildRSSArticles(items, {
+    sourceId: 'google-news-tech',
+    sourceName: 'Google News Tech',
+    fallbackImage: 'https://images.unsplash.com/photo-1519389950473-47ba0277781c?w=800&h=600&fit=crop',
+  }).slice(0, pageSize);
+}
+
+// ============================================================================
+// SPORTS RSS FEEDS (Additional Sources)
+// ============================================================================
+
+async function trySportsIllustratedRSSAPI(pageSize: number): Promise<NewsAPIArticle[]> {
+  const items = await fetchRSSFeed('https://www.si.com/rss/si_topstories.rss', pageSize);
+  return buildRSSArticles(items, {
+    sourceId: 'sports-illustrated',
+    sourceName: 'Sports Illustrated',
+    fallbackImage: 'https://images.unsplash.com/photo-1461896836934-ffe607ba8211?w=800&h=600&fit=crop',
+  }).slice(0, pageSize);
+}
+
+async function tryFoxSportsRSSAPI(pageSize: number): Promise<NewsAPIArticle[]> {
+  const items = await fetchRSSFeed('https://api.foxsports.com/v1/rss', pageSize);
+  return buildRSSArticles(items, {
+    sourceId: 'fox-sports',
+    sourceName: 'Fox Sports',
+    fallbackImage: 'https://images.unsplash.com/photo-1522778119026-d647f0596c20?w=800&h=600&fit=crop',
+  }).slice(0, pageSize);
+}
+
+async function tryNBARSSAPI(pageSize: number): Promise<NewsAPIArticle[]> {
+  const items = await fetchRSSFeed('https://www.nba.com/news/rss.xml', pageSize);
+  return buildRSSArticles(items, {
+    sourceId: 'nba-rss',
+    sourceName: 'NBA News',
+    fallbackImage: 'https://images.unsplash.com/photo-1546519638-68e109498ffc?w=800&h=600&fit=crop',
+  }).slice(0, pageSize);
+}
+
+async function tryNFLRSSAPI(pageSize: number): Promise<NewsAPIArticle[]> {
+  const items = await fetchRSSFeed('https://www.nfl.com/rss/rsslanding', pageSize);
+  return buildRSSArticles(items, {
+    sourceId: 'nfl-rss',
+    sourceName: 'NFL News',
+    fallbackImage: 'https://images.unsplash.com/photo-1517649763962-0c623066013b?w=800&h=600&fit=crop',
+  }).slice(0, pageSize);
+}
+
+async function tryMLBRSSAPI(pageSize: number): Promise<NewsAPIArticle[]> {
+  const items = await fetchRSSFeed('https://www.mlb.com/feeds/news/rss.xml', pageSize);
+  return buildRSSArticles(items, {
+    sourceId: 'mlb-rss',
+    sourceName: 'MLB News',
+    fallbackImage: 'https://images.unsplash.com/photo-1566577739112-5180d4bf9390?w=800&h=600&fit=crop',
+  }).slice(0, pageSize);
+}
+
+async function tryGoogleNewsSportsRSSAPI(pageSize: number): Promise<NewsAPIArticle[]> {
+  const items = await fetchRSSFeed('https://news.google.com/rss/search?q=sports&hl=en-US&gl=US&ceid=US:en', pageSize);
+  return buildRSSArticles(items, {
+    sourceId: 'google-news-sports',
+    sourceName: 'Google News Sports',
+    fallbackImage: 'https://images.unsplash.com/photo-1579952363873-27f3bade9f55?w=800&h=600&fit=crop',
+  }).slice(0, pageSize);
+}
+
+// ============================================================================
+// BUSINESS RSS FEEDS (Additional Sources)
+// ============================================================================
+
+async function tryFinancialTimesRSSAPI(pageSize: number): Promise<NewsAPIArticle[]> {
+  const items = await fetchRSSFeed('https://www.ft.com/?format=rss', pageSize);
+  return buildRSSArticles(items, {
+    sourceId: 'financial-times',
+    sourceName: 'Financial Times',
+    fallbackImage: 'https://images.unsplash.com/photo-1611974789855-9c2a0a7236a3?w=800&h=600&fit=crop',
+  }).slice(0, pageSize);
+}
+
+async function tryWSJRSSAPI(pageSize: number): Promise<NewsAPIArticle[]> {
+  const items = await fetchRSSFeed('https://feeds.a.dj.com/rss/RSSWorldNews.xml', pageSize);
+  return buildRSSArticles(items, {
+    sourceId: 'wsj',
+    sourceName: 'Wall Street Journal',
+    fallbackImage: 'https://images.unsplash.com/photo-1590283603385-17ffb3a7f29f?w=800&h=600&fit=crop',
+  }).slice(0, pageSize);
+}
+
+async function tryForbesRSSAPI(pageSize: number): Promise<NewsAPIArticle[]> {
+  const items = await fetchRSSFeed('https://www.forbes.com/business/feed/', pageSize);
+  return buildRSSArticles(items, {
+    sourceId: 'forbes',
+    sourceName: 'Forbes',
+    fallbackImage: 'https://images.unsplash.com/photo-1460925895917-afdab827c52f?w=800&h=600&fit=crop',
+  }).slice(0, pageSize);
+}
+
+async function tryBusinessInsiderRSSAPI(pageSize: number): Promise<NewsAPIArticle[]> {
+  const items = await fetchRSSFeed('https://www.businessinsider.com/rss', pageSize);
+  return buildRSSArticles(items, {
+    sourceId: 'business-insider',
+    sourceName: 'Business Insider',
+    fallbackImage: 'https://images.unsplash.com/photo-1554224155-8d04cb21cd6c?w=800&h=600&fit=crop',
+  }).slice(0, pageSize);
+}
+
+async function trySeekingAlphaRSSAPI(pageSize: number): Promise<NewsAPIArticle[]> {
+  const items = await fetchRSSFeed('https://seekingalpha.com/feed.xml', pageSize);
+  return buildRSSArticles(items, {
+    sourceId: 'seeking-alpha',
+    sourceName: 'Seeking Alpha',
+    fallbackImage: 'https://images.unsplash.com/photo-1507679799987-c73779587ccf?w=800&h=600&fit=crop',
+  }).slice(0, pageSize);
+}
+
+async function tryGoogleNewsBusinessRSSAPI(pageSize: number): Promise<NewsAPIArticle[]> {
+  const items = await fetchRSSFeed('https://news.google.com/rss/search?q=business&hl=en-US&gl=US&ceid=US:en', pageSize);
+  return buildRSSArticles(items, {
+    sourceId: 'google-news-business',
+    sourceName: 'Google News Business',
+    fallbackImage: 'https://images.unsplash.com/photo-1444653614773-995cb1ef9efa?w=800&h=600&fit=crop',
+  }).slice(0, pageSize);
+}
+
+// ============================================================================
+// ENTERTAINMENT RSS FEEDS (Additional Sources)
+// ============================================================================
+
+async function tryDeadlineRSSAPI(pageSize: number): Promise<NewsAPIArticle[]> {
+  const items = await fetchRSSFeed('https://deadline.com/feed/', pageSize);
+  return buildRSSArticles(items, {
+    sourceId: 'deadline',
+    sourceName: 'Deadline',
+    fallbackImage: 'https://images.unsplash.com/photo-1522869635100-9f4c5e86aa37?w=800&h=600&fit=crop',
+  }).slice(0, pageSize);
+}
+
+async function tryRollingStoneRSSAPI(pageSize: number): Promise<NewsAPIArticle[]> {
+  const items = await fetchRSSFeed('https://www.rollingstone.com/feed/', pageSize);
+  return buildRSSArticles(items, {
+    sourceId: 'rolling-stone',
+    sourceName: 'Rolling Stone',
+    fallbackImage: 'https://images.unsplash.com/photo-1598899134739-24c46f58b8c0?w=800&h=600&fit=crop',
+  }).slice(0, pageSize);
+}
+
+async function tryBillboardRSSAPI(pageSize: number): Promise<NewsAPIArticle[]> {
+  const items = await fetchRSSFeed('https://www.billboard.com/feed/', pageSize);
+  return buildRSSArticles(items, {
+    sourceId: 'billboard',
+    sourceName: 'Billboard',
+    fallbackImage: 'https://images.unsplash.com/photo-1493225457124-a3eb161ffa5f?w=800&h=600&fit=crop',
+  }).slice(0, pageSize);
+}
+
+async function tryIGNRSSAPI(pageSize: number): Promise<NewsAPIArticle[]> {
+  const items = await fetchRSSFeed('https://feeds.ign.com/ign/all', pageSize);
+  return buildRSSArticles(items, {
+    sourceId: 'ign',
+    sourceName: 'IGN',
+    fallbackImage: 'https://images.unsplash.com/photo-1550745165-9bc0b252726f?w=800&h=600&fit=crop',
+  }).slice(0, pageSize);
+}
+
+async function tryGameSpotRSSAPI(pageSize: number): Promise<NewsAPIArticle[]> {
+  const items = await fetchRSSFeed('https://www.gamespot.com/feeds/mashup/', pageSize);
+  return buildRSSArticles(items, {
+    sourceId: 'gamespot',
+    sourceName: 'GameSpot',
+    fallbackImage: 'https://images.unsplash.com/photo-1511512578047-dfb367046420?w=800&h=600&fit=crop',
+  }).slice(0, pageSize);
+}
+
+async function tryPolygonRSSAPI(pageSize: number): Promise<NewsAPIArticle[]> {
+  const items = await fetchRSSFeed('https://www.polygon.com/rss/index.xml', pageSize);
+  return buildRSSArticles(items, {
+    sourceId: 'polygon',
+    sourceName: 'Polygon',
+    fallbackImage: 'https://images.unsplash.com/photo-1552820728-8b83bb6b773f?w=800&h=600&fit=crop',
+  }).slice(0, pageSize);
+}
+
+async function tryGoogleNewsEntertainmentRSSAPI(pageSize: number): Promise<NewsAPIArticle[]> {
+  const items = await fetchRSSFeed('https://news.google.com/rss/search?q=entertainment&hl=en-US&gl=US&ceid=US:en', pageSize);
+  return buildRSSArticles(items, {
+    sourceId: 'google-news-entertainment',
+    sourceName: 'Google News Entertainment',
+    fallbackImage: 'https://images.unsplash.com/photo-1485846234645-a62644f84728?w=800&h=600&fit=crop',
+  }).slice(0, pageSize);
+}
+
+// ============================================================================
+// WORLD NEWS RSS FEEDS (Additional Sources)
+// ============================================================================
+
+async function tryAPNewsRSSAPI(pageSize: number): Promise<NewsAPIArticle[]> {
+  const items = await fetchRSSFeed('https://rsshub.app/apnews/topics/apf-topnews', pageSize);
+  return buildRSSArticles(items, {
+    sourceId: 'ap-news',
+    sourceName: 'Associated Press',
+    fallbackImage: 'https://images.unsplash.com/photo-1495020689067-958852a7765e?w=800&h=600&fit=crop',
+  }).slice(0, pageSize);
+}
+
+async function tryPBSNewsRSSAPI(pageSize: number): Promise<NewsAPIArticle[]> {
+  const items = await fetchRSSFeed('https://www.pbs.org/newshour/feeds/rss/headlines', pageSize);
+  return buildRSSArticles(items, {
+    sourceId: 'pbs-news',
+    sourceName: 'PBS NewsHour',
+    fallbackImage: 'https://images.unsplash.com/photo-1504711434969-e33886168f5c?w=800&h=600&fit=crop',
+  }).slice(0, pageSize);
+}
+
+async function tryABCNewsRSSAPI(pageSize: number): Promise<NewsAPIArticle[]> {
+  const items = await fetchRSSFeed('https://abcnews.go.com/abcnews/topstories', pageSize);
+  return buildRSSArticles(items, {
+    sourceId: 'abc-news',
+    sourceName: 'ABC News',
+    fallbackImage: 'https://images.unsplash.com/photo-1588681664899-f142ff2dc9b1?w=800&h=600&fit=crop',
+  }).slice(0, pageSize);
 }
 
 // OLD sequential fallback code removed - replaced with optimized routing above
@@ -2724,19 +3504,59 @@ export function calculateReadTime(content: string | null): string {
  * @returns Human-readable time ago
  */
 export function getTimeAgo(publishedAt: string): string {
-  const now = new Date();
-  const published = new Date(publishedAt);
-  const diffInMs = now.getTime() - published.getTime();
-  const diffInHours = Math.floor(diffInMs / (1000 * 60 * 60));
-
-  if (diffInHours < 1) {
+  try {
+    const now = new Date();
+    const published = new Date(publishedAt);
+    
+    // Validate date
+    if (isNaN(published.getTime())) {
+      return "Just now";
+    }
+    
+    const diffInMs = now.getTime() - published.getTime();
+    
+    // Handle future dates or negative values (timezone issues, API errors)
+    if (diffInMs < 0) {
+      return "Just now";
+    }
+    
     const diffInMinutes = Math.floor(diffInMs / (1000 * 60));
-    return `${diffInMinutes} minute${diffInMinutes !== 1 ? "s" : ""} ago`;
-  } else if (diffInHours < 24) {
-    return `${diffInHours} hour${diffInHours !== 1 ? "s" : ""} ago`;
-  } else {
+    const diffInHours = Math.floor(diffInMs / (1000 * 60 * 60));
     const diffInDays = Math.floor(diffInHours / 24);
-    return `${diffInDays} day${diffInDays !== 1 ? "s" : ""} ago`;
+    
+    // Less than 1 minute
+    if (diffInMinutes < 1) {
+      return "Just now";
+    }
+    
+    // Less than 1 hour (show minutes)
+    if (diffInHours < 1) {
+      return `${diffInMinutes} minute${diffInMinutes !== 1 ? "s" : ""} ago`;
+    }
+    
+    // Less than 24 hours (show hours)
+    if (diffInHours < 24) {
+      return `${diffInHours} hour${diffInHours !== 1 ? "s" : ""} ago`;
+    }
+    
+    // Less than 7 days (show days)
+    if (diffInDays < 7) {
+      return `${diffInDays} day${diffInDays !== 1 ? "s" : ""} ago`;
+    }
+    
+    // Less than 30 days (show weeks)
+    if (diffInDays < 30) {
+      const weeks = Math.floor(diffInDays / 7);
+      return `${weeks} week${weeks !== 1 ? "s" : ""} ago`;
+    }
+    
+    // More than 30 days (show months)
+    const months = Math.floor(diffInDays / 30);
+    return `${months} month${months !== 1 ? "s" : ""} ago`;
+    
+  } catch (error) {
+    console.error("Error calculating time ago:", error);
+    return "Just now";
   }
 }
 

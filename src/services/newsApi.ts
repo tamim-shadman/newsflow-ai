@@ -315,19 +315,59 @@ export function calculateReadTime(content: string | null): string {
  * @returns Human-readable time ago
  */
 export function getTimeAgo(publishedAt: string): string {
-  const now = new Date();
-  const published = new Date(publishedAt);
-  const diffInMs = now.getTime() - published.getTime();
-  const diffInHours = Math.floor(diffInMs / (1000 * 60 * 60));
-
-  if (diffInHours < 1) {
+  try {
+    const now = new Date();
+    const published = new Date(publishedAt);
+    
+    // Validate date
+    if (isNaN(published.getTime())) {
+      return "Just now";
+    }
+    
+    const diffInMs = now.getTime() - published.getTime();
+    
+    // Handle future dates or negative values (timezone issues, API errors)
+    if (diffInMs < 0) {
+      return "Just now";
+    }
+    
     const diffInMinutes = Math.floor(diffInMs / (1000 * 60));
-    return `${diffInMinutes} minute${diffInMinutes !== 1 ? "s" : ""} ago`;
-  } else if (diffInHours < 24) {
-    return `${diffInHours} hour${diffInHours !== 1 ? "s" : ""} ago`;
-  } else {
+    const diffInHours = Math.floor(diffInMs / (1000 * 60 * 60));
     const diffInDays = Math.floor(diffInHours / 24);
-    return `${diffInDays} day${diffInDays !== 1 ? "s" : ""} ago`;
+    
+    // Less than 1 minute
+    if (diffInMinutes < 1) {
+      return "Just now";
+    }
+    
+    // Less than 1 hour (show minutes)
+    if (diffInHours < 1) {
+      return `${diffInMinutes} minute${diffInMinutes !== 1 ? "s" : ""} ago`;
+    }
+    
+    // Less than 24 hours (show hours)
+    if (diffInHours < 24) {
+      return `${diffInHours} hour${diffInHours !== 1 ? "s" : ""} ago`;
+    }
+    
+    // Less than 7 days (show days)
+    if (diffInDays < 7) {
+      return `${diffInDays} day${diffInDays !== 1 ? "s" : ""} ago`;
+    }
+    
+    // Less than 30 days (show weeks)
+    if (diffInDays < 30) {
+      const weeks = Math.floor(diffInDays / 7);
+      return `${weeks} week${weeks !== 1 ? "s" : ""} ago`;
+    }
+    
+    // More than 30 days (show months)
+    const months = Math.floor(diffInDays / 30);
+    return `${months} month${months !== 1 ? "s" : ""} ago`;
+    
+  } catch (error) {
+    console.error("Error calculating time ago:", error);
+    return "Just now";
   }
 }
 

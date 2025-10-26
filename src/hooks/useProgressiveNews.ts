@@ -79,13 +79,18 @@ export function useProgressiveNews(
 
 /**
  * Simple progressive loader - loads in chunks of increasing size
+ * Uses shorter cache for RSS-heavy categories (Bangladesh, Health)
  */
 export function useChunkedNews(category: CategoryType) {
+  // Use 30 min staleTime for RSS-heavy categories, 2 hours for others
+  const isRSSHeavy = category === 'bangladesh' || category === 'health';
+  const staleTime = isRSSHeavy ? 30 * 60 * 1000 : 2 * 60 * 60 * 1000;
+  
   // First load: 6 articles (fast)
   const firstQuery = useQuery({
     queryKey: ["news-chunk-1", category],
     queryFn: () => fetchNewsByCategory(category, 6),
-    staleTime: 2 * 60 * 60 * 1000,
+    staleTime,
     refetchOnWindowFocus: false,
   });
 
@@ -93,7 +98,7 @@ export function useChunkedNews(category: CategoryType) {
   const secondQuery = useQuery({
     queryKey: ["news-chunk-2", category],
     queryFn: () => fetchNewsByCategory(category, 18).then(articles => articles.slice(6, 18)),
-    staleTime: 2 * 60 * 60 * 1000,
+    staleTime,
     refetchOnWindowFocus: false,
     enabled: !!firstQuery.data, // Only fetch after first completes
   });
@@ -102,7 +107,7 @@ export function useChunkedNews(category: CategoryType) {
   const thirdQuery = useQuery({
     queryKey: ["news-chunk-3", category],
     queryFn: () => fetchNewsByCategory(category, 50).then(articles => articles.slice(18)),
-    staleTime: 2 * 60 * 60 * 1000,
+    staleTime,
     refetchOnWindowFocus: false,
     enabled: !!secondQuery.data, // Only fetch after second completes
   });

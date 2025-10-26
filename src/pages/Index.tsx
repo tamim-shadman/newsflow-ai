@@ -1329,7 +1329,7 @@ const Index = () => {
                             </button>
                           </PopoverTrigger>
                           <PopoverContent
-                            className={`relative w-[min(90vw,420px)] max-h-[70vh] rounded-3xl border ${articleTheme.ring} bg-black/80 text-white backdrop-blur-2xl p-5 sm:p-6 z-[110] overflow-hidden animate-slide-in shadow-[0_20px_60px_rgba(0,0,0,0.45)]`}
+                            className={`relative w-[min(90vw,420px)] max-h-[70vh] rounded-3xl border ${articleTheme.ring} bg-black/80 text-white backdrop-blur-2xl z-[110] overflow-hidden animate-slide-in shadow-[0_20px_60px_rgba(0,0,0,0.45)]`}
                             onClick={(e) => e.stopPropagation()}
                             side="bottom"
                             align="center"
@@ -1352,8 +1352,8 @@ const Index = () => {
                             >
                               <X className="w-4 h-4 pointer-events-none" />
                             </button>
-                            <div className="relative z-10 flex h-full flex-col space-y-4">
-                              <div className="flex items-start justify-between gap-3 border-b border-white/10 pb-4">
+                            <div className="relative z-10 flex h-full max-h-full flex-col p-5 sm:p-6">
+                              <div className="flex items-start justify-between gap-3 border-b border-white/10 pb-4 flex-shrink-0">
                                 <div className={`flex h-11 w-11 items-center justify-center rounded-xl bg-gradient-to-br ${articleTheme.accent} text-white`}>
                                   <Sparkles className="h-5 w-5" />
                                 </div>
@@ -1366,7 +1366,7 @@ const Index = () => {
                                   </p>
                                 </div>
                               </div>
-                              <div className="flex-1 space-y-4 overflow-y-auto pr-2 sm:pr-3 scrollbar-thin">
+                              <div className="flex-1 min-h-0 mt-4 space-y-4 overflow-y-auto pr-2 sm:pr-3 scrollbar-thin scrollbar-thumb-white/20 scrollbar-track-transparent hover:scrollbar-thumb-white/30">
                                 {loadingSummary === article.url ? (
                                   <div className="flex h-full min-h-[180px] flex-col items-center justify-center space-y-4 text-white/70">
                                     <Loader2 className="h-10 w-10 animate-spin text-white" />

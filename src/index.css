@@ -160,6 +160,23 @@ All colors MUST be HSL.
     scrollbar-color: rgba(168, 85, 247, 0.7) rgba(168, 85, 247, 0.1);
   }
 
+  /* Custom scrollbar thumb colors */
+  .scrollbar-thumb-white\/20::-webkit-scrollbar-thumb {
+    background: rgba(255, 255, 255, 0.2);
+  }
+
+  .scrollbar-thumb-white\/30::-webkit-scrollbar-thumb {
+    background: rgba(255, 255, 255, 0.3);
+  }
+
+  .scrollbar-track-transparent::-webkit-scrollbar-track {
+    background: transparent;
+  }
+
+  .hover\:scrollbar-thumb-white\/30:hover::-webkit-scrollbar-thumb {
+    background: rgba(255, 255, 255, 0.3);
+  }
+
   .glass {
     @apply backdrop-blur-2xl bg-white/5 border border-white/10;
   }
