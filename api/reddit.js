@@ -1,7 +1,6 @@
 const DEFAULT_LIMIT = 50;
 const MAX_LIMIT = 100;
-const REDDIT_API_BASE = "https://api.reddit.com";
-const REDDIT_WEB_BASE = "https://www.reddit.com";
+const REDDIT_BASE_URL = "https://www.reddit.com";
 
 function setCors(res) {
   res.setHeader("Access-Control-Allow-Credentials", "true");
@@ -32,7 +31,7 @@ function mapRedditPost(subreddit, data) {
     author: data.author || `r/${subreddit}`,
     title: data.title,
     description: data.selftext || data.title,
-  url: `${REDDIT_WEB_BASE}${data.permalink}`,
+    url: `${REDDIT_BASE_URL}${data.permalink}`,
     urlToImage: hasValidThumb ? data.thumbnail : null,
     publishedAt: new Date(createdUtc * 1000).toISOString(),
     content: data.selftext || data.title,
@@ -53,14 +52,12 @@ export default async function handler(req, res) {
   }
 
   const subredditRaw = req.query?.subreddit;
-  const subreddit = typeof subredditRaw === "string" && subredditRaw.trim() ? subredditRaw.trim() : "news";
+  const subreddit = typeof subredditRaw === "string" && subredditRaw.trim()
+    ? subredditRaw.trim().replace(/^r\//i, "")
+    : "news";
   const limit = normalizeLimit(req.query?.limit);
 
-  const params = new URLSearchParams({
-    limit: String(limit),
-    raw_json: "1",
-  });
-  const endpoint = `${REDDIT_API_BASE}/r/${encodeURIComponent(subreddit)}/hot?${params.toString()}`;
+  const endpoint = `${REDDIT_BASE_URL}/r/${encodeURIComponent(subreddit)}/hot.json?limit=${limit}`;
 
   try {
     console.log(`[reddit-api] Fetching r/${subreddit} (limit=${limit})`);
@@ -73,11 +70,7 @@ export default async function handler(req, res) {
     });
 
     if (!response.ok) {
-      const msg = `Reddit responded with ${response.status}`;
-      console.error(`[reddit-api] ${msg}`);
-      const body = await safeParseJSON(response);
-      res.status(response.status).json({ success: false, error: msg, details: body });
-      return;
+      throw new Error(`Reddit responded with ${response.status}`);
     }
 
     const payload = await response.json();
@@ -92,13 +85,5 @@ export default async function handler(req, res) {
   } catch (error) {
     console.error(`[reddit-api] Failed for r/${subreddit}:`, error.message);
     res.status(502).json({ success: false, error: error.message, articles: [] });
-  }
-}
-
-async function safeParseJSON(response) {
-  try {
-    return await response.json();
-  } catch {
-    return null;
   }
 }

@@ -2861,27 +2861,28 @@ async function tryWiredRSSAPI(pageSize: number): Promise<NewsAPIArticle[]> {
 }
 
 async function tryRedditAPI(subreddit: string | undefined, pageSize: number): Promise<NewsAPIArticle[]> {
-  if (!subreddit) {
+  const normalized = typeof subreddit === 'string' ? subreddit.trim().replace(/^r\//i, '') : '';
+  if (!normalized) {
     return [];
   }
 
   try {
-    console.log(`🔄 Trying Reddit API for r/${subreddit} (Unlimited)...`);
+    console.log(`🔄 Trying Reddit API for r/${normalized} (Unlimited)...`);
     const limit = Math.min(pageSize * 2, 100);
     const response = await axios.get(REDDIT_PROXY_URL, {
-      params: { subreddit, limit },
+      params: { subreddit: normalized, limit },
       timeout: 8000,
     });
 
     const articles = response.data?.articles || [];
 
-    console.log(`✅ Reddit proxy SUCCESS (r/${subreddit}): ${articles.length} articles`);
+    console.log(`✅ Reddit proxy SUCCESS (r/${normalized}): ${articles.length} articles`);
     return articles.slice(0, pageSize).map((article: NewsAPIArticle) => ({
       ...article,
       urlToImage: article.urlToImage || DEFAULT_FALLBACK_IMAGE,
     }));
   } catch (error) {
-    console.error(`❌ Reddit API failed for r/${subreddit}:`, error);
+    console.error(`❌ Reddit API failed for r/${normalized}:`, error);
     return [];
   }
 }

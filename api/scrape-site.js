@@ -1,4 +1,6 @@
-import { load } from "cheerio";
+import cheerio from "cheerio";
+
+const { load } = cheerio;
 
 const JINA_READER_BASE = "https://r.jina.ai/";
 const CATEGORY_KEYWORDS = new Set([
@@ -216,35 +218,119 @@ function normalizeArticleUrl(candidateUrl, sourceDomain) {
   }
 }
 
-function extractTitle($anchor) {
-  const candidates = [
-    cleanText($anchor.text()),
-    cleanText($anchor.attr('aria-label')),
-    cleanText($anchor.attr('title')),
-    cleanText($anchor.attr('data-title')),
-  ];
+function stripTimingSuffix(text) {
+  if (!text) return text;
+  return text.replace(/\b\d+\s*(?:minute|minutes|hour|hours|hr|hrs|day|days|week|weeks)\s+ago.*$/i, '').trim();
+}
 
-  return candidates.find(text => text && text.length >= 8) || null;
+function isMeaningfulText(text, min = 8, max = 220) {
+  const length = text?.length ?? 0;
+  return Boolean(text && length >= min && length <= max);
+}
+
+function collectTextCandidates($, $scope, selectors) {
+  if (!$scope || !$scope.length) return [];
+  const values = [];
+  for (const selector of selectors) {
+    const text = cleanText($scope.find(selector).first().text());
+    if (isMeaningfulText(text) && !values.includes(text)) {
+      values.push(text);
+    }
+  }
+  return values;
+}
+
+function extractTitle($, $anchor, $container) {
+  const candidates = [];
+
+  candidates.push(...collectTextCandidates($, $anchor, [
+    '[data-testid*="headline"]',
+    '[class*="headline"]',
+    '[data-component*="title"]',
+    'h1',
+    'h2',
+    'h3',
+    'h4',
+  ]));
+
+  if ($container && $container.length) {
+    candidates.push(...collectTextCandidates($, $container, [
+      '[data-testid*="headline"]',
+      '[class*="headline"]',
+      'h1',
+      'h2',
+      'h3',
+    ]));
+  }
+
+  const attributeCandidates = [
+    cleanText($anchor.attr('aria-label')),
+    cleanText($anchor.attr('data-headline')),
+    cleanText($anchor.attr('data-title')),
+    cleanText($anchor.attr('title')),
+  ].filter(Boolean);
+
+  candidates.push(...attributeCandidates);
+
+  const fallback = stripTimingSuffix(cleanText($anchor.text()));
+  if (isMeaningfulText(fallback)) {
+    candidates.push(fallback);
+  }
+
+  for (const candidate of candidates) {
+    const sanitized = stripTimingSuffix(candidate);
+    if (isMeaningfulText(sanitized)) {
+      return sanitized;
+    }
+  }
+
+  return null;
+}
+
+function isContainerCandidate($el) {
+  if (!$el || !$el.length) return false;
+  const node = $el.get(0);
+  if (!node?.tagName) return false;
+  const tag = node.tagName.toLowerCase();
+  const className = ($el.attr('class') || '').toLowerCase();
+  const dataTestId = ($el.attr('data-testid') || '').toLowerCase();
+  const dataComponent = ($el.attr('data-component') || '').toLowerCase();
+
+  if (tag === 'article' || tag === 'li') return true;
+  if (className.includes('card') || className.includes('story') || className.includes('promo') || className.includes('item')) return true;
+  if (dataTestId.includes('card') || dataTestId.includes('promo') || dataTestId.includes('story')) return true;
+  if (dataComponent.includes('card') || dataComponent.includes('story')) return true;
+
+  return false;
 }
 
 function findContainer($, $anchor) {
-  const selectors = [
-    'article',
-    '[role="article"]',
-    '[data-component*="Card"]',
+  const prioritySelectors = [
     '[data-testid*="card"]',
+    '[data-component*="card"]',
     '[class*="card"]',
     '[class*="story"]',
     '[class*="item"]',
-    '[class*="article"]',
+    'article',
+    '[role="article"]',
     'li',
   ];
 
-  for (const selector of selectors) {
+  for (const selector of prioritySelectors) {
     const container = $anchor.closest(selector);
-    if (container.length) {
+    if (container.length && isContainerCandidate(container)) {
       return container;
     }
+  }
+
+  let current = $anchor.parent();
+  let depth = 0;
+  while (current.length && depth < 8) {
+    if (isContainerCandidate(current)) {
+      return current;
+    }
+    current = current.parent();
+    depth += 1;
   }
 
   return $anchor.parent();
@@ -264,9 +350,19 @@ function findDescription($, $anchor, $container, sourceName, title) {
   };
 
   if ($container && $container.length) {
-    $container.find('p').each((_, el) => {
-      collectText($(el).text());
-    });
+    const descriptionSelectors = [
+      '[data-testid*="description"]',
+      '[class*="description"]',
+      'p',
+      'span',
+    ];
+
+    for (const selector of descriptionSelectors) {
+      $container.find(selector).each((_, el) => {
+        collectText($(el).text());
+      });
+      if (collected.length) break;
+    }
 
     if (collected.length === 0) {
       const sibling = $container.nextAll('p').first();
@@ -279,6 +375,18 @@ function findDescription($, $anchor, $container, sourceName, title) {
   if (collected.length === 0) {
     collectText($anchor.attr('data-summary'));
     collectText($anchor.attr('title'));
+  }
+
+  if (collected.length === 0) {
+    const anchorText = cleanText($anchor.text());
+    if (anchorText && anchorText.toLowerCase() !== normalizedTitle) {
+      const escapedTitle = title.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+      const withoutTitle = anchorText.replace(new RegExp(`^${escapedTitle}\s*`, 'i'), '').trim();
+      const sanitized = stripTimingSuffix(withoutTitle);
+      if (isMeaningfulText(sanitized, 24, 320)) {
+        collected.push(sanitized);
+      }
+    }
   }
 
   return collected[0] || `Latest from ${sourceName}`;
@@ -375,7 +483,8 @@ function buildArticleFromAnchor($, $anchor, sourceUrl, sourceName, sourceDomain)
     return null;
   }
 
-  const title = extractTitle($anchor);
+  const $container = findContainer($, $anchor);
+  const title = extractTitle($, $anchor, $container);
   if (!title || title.length < 8 || title.length > 200) {
     return null;
   }
@@ -383,7 +492,6 @@ function buildArticleFromAnchor($, $anchor, sourceUrl, sourceName, sourceDomain)
     return null;
   }
 
-  const $container = findContainer($, $anchor);
   const description = findDescription($, $anchor, $container, sourceName, title);
   const imageUrl = findImage($, $anchor, $container, sourceUrl);
   const publishedAt = findPublishedAt($, $anchor, $container);
