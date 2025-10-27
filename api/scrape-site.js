@@ -1,4 +1,40 @@
 const JINA_READER_BASE = "https://r.jina.ai/";
+const CATEGORY_KEYWORDS = new Set([
+  "news",
+  "world",
+  "politics",
+  "bangladesh",
+  "business",
+  "sports",
+  "economy",
+  "opinion",
+  "editorial",
+  "national",
+  "international",
+  "latest",
+  "top-news",
+  "topnews",
+  "todays-paper",
+  "todayspaper",
+  "photo",
+  "photos",
+  "video",
+  "videos",
+  "lifestyle",
+  "entertainment",
+  "tech",
+  "technology",
+  "education",
+  "health",
+  "science",
+  "crime",
+  "law",
+  "archives",
+  "all",
+  "more",
+  "asia",
+  "city",
+]);
 
 function setCorsHeaders(res) {
   res.setHeader("Access-Control-Allow-Credentials", "true");
@@ -21,63 +57,123 @@ function normalizeUrl(url) {
   }
 }
 
-function extractArticlesFromJinaResponse(data, sourceUrl) {
+function extractArticlesFromHTML(html, sourceUrl) {
   const articles = [];
+  const seenUrls = new Set();
   
-  if (!data?.data) return articles;
+  if (!html) return articles;
   
-  const content = data.data.content || data.data.html || "";
   const sourceDomain = new URL(sourceUrl).hostname.replace(/^www\./, "");
   const sourceName = sourceDomain.split('.')[0]
     .split(/[-_]/)
     .map(word => word.charAt(0).toUpperCase() + word.slice(1))
     .join(' ');
 
-  // Parse links from content - Jina returns structured data with links
-  const linkMatches = content.matchAll(/<a[^>]+href=["']([^"']+)["'][^>]*>([^<]+)<\/a>/gi);
-  
-  let count = 0;
-  for (const match of linkMatches) {
-    if (count >= 20) break; // Limit to 20 articles per site
+  // Match article containers with title, link, and optional image/description
+  // Pattern 1: <article> or <div class="article/post/story/news">
+  const articlePatterns = [
+    // Match complete article blocks with various HTML structures
+    /<(?:article|div)[^>]*class=["'][^"']*(?:article|post|story|news|item|card)[^"']*["'][^>]*>([\s\S]{50,2000}?)<\/(?:article|div)>/gi,
+    // Match h2/h3 with links (common in news sites)
+    /<(?:h2|h3)[^>]*>[\s\S]*?<a[^>]+href=["']([^"']+)["'][^>]*>([^<]+)<\/a>[\s\S]*?<\/(?:h2|h3)>/gi,
+  ];
+
+  for (const pattern of articlePatterns) {
+    const matches = html.matchAll(pattern);
     
-    const href = match[1];
-    const title = match[2]?.trim();
-    
-    // Skip navigation, footer, social links
-    if (!href || !title) continue;
-    if (href.includes('#') || href.includes('javascript:')) continue;
-    if (title.length < 10 || title.length > 200) continue;
-    if (/^(home|about|contact|privacy|terms|subscribe|login|signup)/i.test(title)) continue;
-    
-    // Construct absolute URL
-    let articleUrl = href;
-    if (href.startsWith('/')) {
-      const base = new URL(sourceUrl);
-      articleUrl = `${base.protocol}//${base.hostname}${href}`;
-    } else if (!href.startsWith('http')) {
-      continue; // Skip relative paths that aren't root-relative
+    for (const match of matches) {
+      if (articles.length >= 20) break;
+      
+      const block = match[0];
+      
+      // Extract article URL
+      const urlMatch = block.match(/href=["']([^"']+)["']/);
+      if (!urlMatch) continue;
+      
+      let articleUrl = urlMatch[1];
+      
+      // Skip non-article links
+      if (!articleUrl || articleUrl.includes('#') || articleUrl.includes('javascript:')) continue;
+      if (/\/(tag|category|author|search|page|login|signup|subscribe|about|contact|privacy|terms)/i.test(articleUrl)) continue;
+      
+      // Make URL absolute
+      if (articleUrl.startsWith('/')) {
+        const base = new URL(sourceUrl);
+        articleUrl = `${base.protocol}//${base.hostname}${articleUrl}`;
+      } else if (!articleUrl.startsWith('http')) {
+        continue;
+      }
+      
+      // Verify same domain and basic article-like path
+      try {
+        const articleLocation = new URL(articleUrl);
+        const articleDomain = articleLocation.hostname.replace(/^www\./, "");
+        if (articleDomain !== sourceDomain) continue;
+
+        const pathSegments = articleLocation.pathname.split('/').filter(Boolean);
+        const lastSegment = pathSegments[pathSegments.length - 1] || '';
+        const looksLikeCategorySlug = (
+          pathSegments.length === 0 ||
+          (pathSegments.length === 1 && (
+            CATEGORY_KEYWORDS.has(lastSegment.toLowerCase()) ||
+            (!/[0-9]/.test(lastSegment) && !lastSegment.includes('-') && lastSegment.length <= 24)
+          )) ||
+          (pathSegments.length === 2 && (
+            CATEGORY_KEYWORDS.has(lastSegment.toLowerCase()) ||
+            (!/[0-9]/.test(lastSegment) && !lastSegment.includes('-') && !/[0-9]/.test(pathSegments[0]))
+          ))
+        );
+
+        if (looksLikeCategorySlug) continue;
+      } catch {
+        continue;
+      }
+
+      if (seenUrls.has(articleUrl)) continue;
+      
+      // Extract title (from link text or heading)
+      const titleMatch = block.match(/<(?:a|h2|h3)[^>]*>([^<]+)<\/(?:a|h2|h3)>/i) ||
+                        block.match(/title=["']([^"']+)["']/i) ||
+                        block.match(/alt=["']([^"']+)["']/i);
+      
+      const title = titleMatch ? titleMatch[1].trim() : null;
+      if (!title || title.length < 10 || title.length > 200) continue;
+      if (/^(home|read more|click here|view all|about|contact)/i.test(title)) continue;
+      
+      // Extract image
+      const imgMatch = block.match(/<img[^>]+src=["']([^"']+)["']/i);
+      let imageUrl = imgMatch ? imgMatch[1] : null;
+      
+      if (imageUrl && imageUrl.startsWith('/')) {
+        const base = new URL(sourceUrl);
+        imageUrl = `${base.protocol}//${base.hostname}${imageUrl}`;
+      }
+      
+      // Extract description/excerpt
+      const descMatch = block.match(/<p[^>]*>([^<]{20,300})<\/p>/i) ||
+                       block.match(/class=["'][^"']*(?:excerpt|summary|description)[^"']*["'][^>]*>([^<]+)</i);
+      
+      const description = descMatch ? descMatch[1].trim().replace(/\s+/g, ' ') : `Latest from ${sourceName}`;
+      
+      // Extract time if available
+      const timeMatch = block.match(/<time[^>]*datetime=["']([^"']+)["']/i) ||
+                       block.match(/(\d{1,2}\s+(?:minute|hour|day)s?\s+ago)/i);
+      
+      const publishedAt = timeMatch ? (timeMatch[1].includes('ago') ? new Date().toISOString() : timeMatch[1]) : new Date().toISOString();
+      
+      articles.push({
+        source: { id: sourceDomain, name: sourceName },
+        author: sourceName,
+        title: title,
+        description: description.substring(0, 200),
+        url: articleUrl,
+        urlToImage: imageUrl,
+        publishedAt: publishedAt,
+        content: description
+      });
+
+      seenUrls.add(articleUrl);
     }
-    
-    // Only include articles from the same domain
-    try {
-      const articleDomain = new URL(articleUrl).hostname.replace(/^www\./, "");
-      if (articleDomain !== sourceDomain) continue;
-    } catch {
-      continue;
-    }
-    
-    articles.push({
-      source: { id: sourceDomain, name: sourceName },
-      author: sourceName,
-      title: title,
-      description: `Latest from ${sourceName}`,
-      url: articleUrl,
-      urlToImage: data.data.image || null,
-      publishedAt: new Date().toISOString(),
-      content: null
-    });
-    
-    count++;
   }
   
   return articles;
@@ -113,7 +209,7 @@ export default async function handler(req, res) {
       headers: {
         Accept: "application/json",
         "X-Return-Format": "html",
-        "X-With-Links-Summary": "true",
+        "X-With-Images-Summary": "true",
       },
       signal: AbortSignal.timeout(10000), // 10s timeout
     });
@@ -123,7 +219,13 @@ export default async function handler(req, res) {
     }
 
     const data = await response.json();
-    const articles = extractArticlesFromJinaResponse(data, targetUrl);
+    const html = data?.data?.content || data?.data?.html || "";
+    
+    if (!html) {
+      throw new Error("No HTML content received from Jina Reader");
+    }
+    
+    const articles = extractArticlesFromHTML(html, targetUrl);
     
     console.log(`[scrape-site] Extracted ${articles.length} articles from ${targetUrl}`);
     
