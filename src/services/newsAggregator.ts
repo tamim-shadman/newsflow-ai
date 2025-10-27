@@ -957,9 +957,47 @@ export async function fetchNewsByCategory(
 
     let articles: NewsAPIArticle[] = [];
     const errors: string[] = [];
+    let usedDirectBangladesh = false;
 
-    // In production, use serverless function
-    if (NEWS_API_URL) {
+    // Always prioritize direct Bangladesh sources
+    if (category === "bangladesh") {
+      try {
+        const fetchPromise = fetchNewsDirectly("bangladesh", pageSize);
+        const timeoutPromise = new Promise<NewsAPIArticle[]>((_, reject) =>
+          setTimeout(() => reject(new Error("Direct Bangladesh fetch timeout")), 8000)
+        );
+
+        const fetchedArticles = await Promise.race([fetchPromise, timeoutPromise]);
+        const desiredMinimum = calculateDesiredMinimum(pageSize);
+        let appliedFreshnessHours = getFreshnessWindowHours(category);
+        const directArticles = filterRecentArticles(fetchedArticles, category, {
+          minCount: desiredMinimum,
+          onWindowApplied: (hours, count, relaxed) => {
+            appliedFreshnessHours = hours;
+            if (relaxed) {
+              console.log(
+                `📆 Relaxed freshness window to ${hours} hours for ${category} (direct Bangladesh) to retain ${count} articles`
+              );
+            }
+          },
+        });
+
+        if (directArticles.length > 0) {
+          console.log(`🇧🇩 Direct Bangladesh sources returned ${directArticles.length} articles (last ${appliedFreshnessHours} hours)`);
+          articles = directArticles;
+          usedDirectBangladesh = true;
+        } else {
+          console.warn("⚠️ Direct Bangladesh sources returned no recent articles – falling back to serverless sources");
+        }
+      } catch (directBangladeshError: unknown) {
+        const errorMsg = directBangladeshError instanceof Error ? directBangladeshError.message : "Unknown error";
+        errors.push(`Direct Bangladesh fetch failed: ${errorMsg}`);
+        console.warn("⚠️ Direct Bangladesh fetch error:", errorMsg);
+      }
+    }
+
+    // In production, use serverless function unless direct Bangladesh sources succeeded
+    if (NEWS_API_URL && !usedDirectBangladesh) {
       try {
         const response = await axios.get(NEWS_API_URL, {
           params: {
