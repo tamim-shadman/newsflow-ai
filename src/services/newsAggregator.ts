@@ -285,6 +285,21 @@ function normalizeUrl(url?: string | null): string | null {
   }
 }
 
+function normalizeHostname(host?: string | null): string | null {
+  if (!host) return null;
+  const lower = host.toLowerCase();
+  return lower.startsWith("www.") ? lower.slice(4) : lower;
+}
+
+function extractHostname(url?: string | null): string | null {
+  if (!url) return null;
+  try {
+    return normalizeHostname(new URL(url).hostname);
+  } catch {
+    return null;
+  }
+}
+
 function toISODate(input?: string | null): string | undefined {
   if (!input) return undefined;
   const parsed = new Date(input);
@@ -413,9 +428,24 @@ function mergeAndPrepareArticles(
     },
   });
   const unique = dedupeArticles(filtered);
+
+  let curated = unique;
+  if (category === "bangladesh") {
+    const localArticles = unique.filter(isBangladeshLocalArticle);
+    if (localArticles.length >= desiredMinimum) {
+      console.log(`🇧🇩 Prioritizing ${localArticles.length} Bangladesh-local articles (target ${desiredMinimum})`);
+      curated = localArticles;
+    } else if (localArticles.length > 0) {
+      const fallbackArticles = unique.filter(article => !isBangladeshLocalArticle(article));
+      console.log(
+        `🇧🇩 Using ${localArticles.length} Bangladesh-local articles with ${fallbackArticles.length} fallback stories (need ${desiredMinimum})`
+      );
+      curated = [...localArticles, ...fallbackArticles];
+    }
+  }
   
   // Sort by publish date - LATEST FIRST (newest to oldest)
-  const sorted = unique.sort((a, b) => {
+  const sorted = curated.slice().sort((a, b) => {
     const aTime = a.publishedAt ? new Date(a.publishedAt).getTime() : 0;
     const bTime = b.publishedAt ? new Date(b.publishedAt).getTime() : 0;
     return bTime - aTime; // Descending order (latest first)
@@ -842,6 +872,49 @@ const BANGLADESH_DIRECT_SITES = [
   "https://www.rtv.com.bd",
 ];
 
+const BANGLADESH_EXTRA_HOSTS = [
+  "bd-journal.com",
+  "bangla.hindustantimes.com",
+];
+
+const BANGLADESH_ALLOWED_HOSTS = new Set(
+  [
+    ...BANGLADESH_DIRECT_SITES,
+    ...BANGLADESH_EXTRA_HOSTS.map(host => `https://${host}`),
+  ]
+    .map(extractHostname)
+    .filter((host): host is string => Boolean(host))
+);
+
+const BANGLADESH_LOCAL_SOURCE_IDS = new Set<string>([
+  "unb-news",
+  "unb-news-direct",
+  "banglanews24",
+  "prothomalo-en",
+  "financial-express-bd",
+  "newage-bd",
+  "bangladeshjournal",
+  "hindustantimes-bangla",
+  "business-standard-bd",
+  "dhaka-post",
+  "independent-bangladesh",
+  "bss-news",
+]);
+
+function isBangladeshLocalArticle(article: NewsAPIArticle): boolean {
+  const host = extractHostname(article?.url);
+  if (host && BANGLADESH_ALLOWED_HOSTS.has(host)) {
+    return true;
+  }
+
+  const sourceId = article?.source?.id ? article.source.id.toLowerCase() : undefined;
+  if (sourceId && BANGLADESH_LOCAL_SOURCE_IDS.has(sourceId)) {
+    return true;
+  }
+
+  return false;
+}
+
 const GLOBAL_DIRECT_SITES = Array.from(
   new Set([
     ...TECHNOLOGY_DIRECT_SITES,
@@ -1243,8 +1316,22 @@ const CATEGORY_PROVIDER_MAP: Record<CategoryType, ProviderConfig[]> = {
   ],
   bangladesh: [
     ...getDirectBundleProviders("bangladesh"),
-    { name: "google-news-bangladesh", tier: "unlimited" },
-    { name: "bbc-bangladesh", tier: "unlimited" },
+    { name: "unb-news", tier: "unlimited" },
+    { name: "banglanews24", tier: "unlimited" },
+    { name: "prothomalo-en", tier: "unlimited" },
+    { name: "dhakatribune", tier: "unlimited" },
+    { name: "bdnews24", tier: "unlimited" },
+    { name: "financial-express-bd", tier: "unlimited" },
+    { name: "newage-bd", tier: "unlimited" },
+    { name: "bangladeshjournal", tier: "unlimited" },
+    { name: "business-standard-bd", tier: "unlimited" },
+    { name: "dhaka-post", tier: "unlimited" },
+    { name: "independent-bangladesh", tier: "unlimited" },
+    { name: "hindustantimes-bangla", tier: "unlimited" },
+    { name: "newsdata-bangladesh", tier: "limited" },
+    { name: "google-news-bangladesh", tier: "limited" },
+    { name: "guardian-bangladesh", tier: "limited" },
+    { name: "bbc-bangladesh", tier: "fallback" },
   ],
 };
 
@@ -2901,7 +2988,7 @@ async function tryESPNAPI(cat: string, pageSize: number): Promise<NewsAPIArticle
     
     // ESPN API provides various sports news
     const response = await axios.get(
-      'http://site.api.espn.com/apis/site/v2/sports/news',
+  'https://site.api.espn.com/apis/site/v2/sports/news',
       { timeout: 8000 }
     );
     
@@ -3406,7 +3493,7 @@ async function tryMetacriticRSSAPI(pageSize: number): Promise<NewsAPIArticle[]> 
  * Best for: International news, world events
  */
 async function tryBBCRSSAPI(pageSize: number): Promise<NewsAPIArticle[]> {
-  const items = await fetchRSSFeed('http://feeds.bbci.co.uk/news/world/rss.xml', pageSize);
+  const items = await fetchRSSFeed('https://feeds.bbci.co.uk/news/world/rss.xml', pageSize);
   return buildRSSArticles(items, {
     sourceId: 'bbc',
     sourceName: 'BBC News',
@@ -3429,7 +3516,7 @@ async function tryReutersRSSAPI(pageSize: number): Promise<NewsAPIArticle[]> {
 }
 
 async function tryCNNRSSAPI(pageSize: number): Promise<NewsAPIArticle[]> {
-  const items = await fetchRSSFeed('http://rss.cnn.com/rss/edition_world.rss', pageSize);
+  const items = await fetchRSSFeed('https://rss.cnn.com/rss/edition_world.rss', pageSize);
   return buildRSSArticles(items, {
     sourceId: 'cnn',
     sourceName: 'CNN',
@@ -5189,7 +5276,7 @@ async function tryNPRHealthRSSAPI(pageSize: number): Promise<NewsAPIArticle[]> {
 }
 
 async function tryBBCHealthRSSAPI(pageSize: number): Promise<NewsAPIArticle[]> {
-  const items = await fetchRSSFeed('http://feeds.bbci.co.uk/news/health/rss.xml', pageSize);
+  const items = await fetchRSSFeed('https://feeds.bbci.co.uk/news/health/rss.xml', pageSize);
   return buildRSSArticles(items, {
     sourceId: 'bbc-health',
     sourceName: 'BBC Health',
