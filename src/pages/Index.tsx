@@ -39,6 +39,7 @@ import {
   Download,
   Smartphone,
   ListChecks,
+  Flag,
 } from "lucide-react";
 import type { LucideIcon } from "lucide-react";
 import { Input } from "@/components/ui/input";
@@ -124,6 +125,7 @@ const Index = () => {
     { id: "health" as CategoryType, name: "Health", icon: Heart },
     { id: "entertainment" as CategoryType, name: "Entertainment", icon: Film },
     { id: "world" as CategoryType, name: "World", icon: Globe },
+    { id: "bangladesh" as CategoryType, name: "Bangladesh", icon: Flag },
   ];
 
   const toggleNotifications = useCallback(() => {
@@ -225,7 +227,7 @@ const Index = () => {
   const { data: trendingData, isLoading: trendingLoading } = useQuery({
     queryKey: ["trending-from-categories"],
     queryFn: async (): Promise<Array<NewsAPIArticle & { _category: CategoryType }>> => {
-      const categories: CategoryType[] = ["technology", "business", "sports", "health", "entertainment", "world"];
+      const categories: CategoryType[] = ["technology", "business", "sports", "health", "entertainment", "world", "bangladesh"];
       const promises = categories.map(cat => fetchNewsByCategory(cat, 2));
       const results = await Promise.all(promises);
       
@@ -325,7 +327,7 @@ const Index = () => {
     
     const converted = featuredData.map((article, index) => {
       // Determine category from the article or use index-based mapping
-      const categoryMap: CategoryType[] = ["technology", "business", "sports", "health", "entertainment", "world"];
+      const categoryMap: CategoryType[] = ["technology", "business", "sports", "health", "entertainment", "world", "bangladesh"];
       const category = categoryMap[index % categoryMap.length];
       return convertToNewsArticle(article, category);
     });
@@ -896,7 +898,7 @@ const Index = () => {
                 <span className="text-xl sm:text-3xl lg:text-4xl">Top Stories</span>
               </h2>
               <p className="text-gray-400 text-xs sm:text-sm mt-2 ml-8 sm:ml-12 lg:ml-16">
-                <span className="hidden sm:inline">Featured: </span>Tech • Business • Sports • Health • Entertainment • World
+                <span className="hidden sm:inline">Featured: </span>Tech • Business • Sports • Health • Entertainment • World • Bangladesh
               </p>
             </div>
             {featuredNews.length > 0 && (

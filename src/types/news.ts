@@ -52,7 +52,8 @@ export type CategoryType =
   | "health"
   | "sports"
   | "entertainment"
-  | "world";
+  | "world"
+  | "bangladesh";
 
 export interface CategoryTheme {
   gradient: string;
