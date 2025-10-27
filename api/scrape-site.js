@@ -35,6 +35,31 @@ const CATEGORY_KEYWORDS = new Set([
   "asia",
   "city",
 ]);
+const CATEGORY_SUBSTRINGS = [
+  "news",
+  "latest",
+  "breaking",
+  "headlines",
+  "update",
+  "updates",
+  "live",
+  "videos",
+  "video",
+  "photos",
+  "stories",
+  "story",
+  "analysis",
+  "opinion",
+  "world",
+  "politics",
+  "business",
+  "sports",
+  "health",
+  "entertainment",
+  "lifestyle",
+  "economy",
+  "finance",
+];
 
 function setCorsHeaders(res) {
   res.setHeader("Access-Control-Allow-Credentials", "true");
@@ -112,6 +137,7 @@ function extractArticlesFromHTML(html, sourceUrl) {
 
         const pathSegments = articleLocation.pathname.split('/').filter(Boolean);
         const lastSegment = pathSegments[pathSegments.length - 1] || '';
+        const normalizedSegments = pathSegments.map(seg => seg.toLowerCase());
         const looksLikeCategorySlug = (
           pathSegments.length === 0 ||
           (pathSegments.length === 1 && (
@@ -125,6 +151,15 @@ function extractArticlesFromHTML(html, sourceUrl) {
         );
 
         if (looksLikeCategorySlug) continue;
+
+        if (normalizedSegments.some(seg => ["category", "categories", "tag", "tags", "topic", "topics", "section", "sections"].includes(seg))) {
+          continue;
+        }
+
+        const containsCategorySubstr = CATEGORY_SUBSTRINGS.some(substr => lastSegment.toLowerCase().includes(substr));
+        if (containsCategorySubstr && pathSegments.length <= 2 && !/[0-9]/.test(lastSegment)) {
+          continue;
+        }
       } catch {
         continue;
       }

@@ -23,6 +23,7 @@ const PUBMED_API_KEY = import.meta.env.PUBMED_API_KEY;
 const TMDB_API_KEY = import.meta.env.TMDB_API_KEY;
 const OMDB_API_KEY = import.meta.env.OMDB_API_KEY;
 const RSS_PROXY_URL = import.meta.env.VITE_RSS_PROXY_URL || "/api/rss-proxy";
+const REDDIT_PROXY_URL = import.meta.env.VITE_REDDIT_PROXY_URL || "/api/reddit";
 
 // Smart fallback image system - returns different images based on category and article hash
 // Expanded with 20 images per category for maximum variety
@@ -2867,33 +2868,18 @@ async function tryRedditAPI(subreddit: string | undefined, pageSize: number): Pr
   try {
     console.log(`🔄 Trying Reddit API for r/${subreddit} (Unlimited)...`);
     const limit = Math.min(pageSize * 2, 100);
-    const response = await axios.get(`https://www.reddit.com/r/${subreddit}/hot.json`, {
-      params: { limit },
+    const response = await axios.get(REDDIT_PROXY_URL, {
+      params: { subreddit, limit },
       timeout: 8000,
-      headers: { 'User-Agent': 'newsflow-ai/1.0' },
     });
 
-    const posts = response.data?.data?.children || [];
+    const articles = response.data?.articles || [];
 
-    const articles = posts
-      .map((post: any) => post?.data)
-      .filter((data: any) => data && data.title && data.permalink)
-      .map((data: any) => ({
-        source: { id: `reddit-${subreddit}`, name: `r/${subreddit}` },
-        author: data.author || `r/${subreddit}`,
-        title: data.title,
-        description: data.selftext || data.title,
-        url: `https://www.reddit.com${data.permalink}`,
-        urlToImage:
-          data.thumbnail && typeof data.thumbnail === 'string' && data.thumbnail.startsWith('http')
-            ? data.thumbnail
-            : DEFAULT_FALLBACK_IMAGE,
-        publishedAt: data.created_utc ? new Date(data.created_utc * 1000).toISOString() : new Date().toISOString(),
-        content: data.selftext || data.title,
-      }));
-
-    console.log(`✅ Reddit API SUCCESS (r/${subreddit}): ${articles.length} articles`);
-    return articles.slice(0, pageSize);
+    console.log(`✅ Reddit proxy SUCCESS (r/${subreddit}): ${articles.length} articles`);
+    return articles.slice(0, pageSize).map((article: NewsAPIArticle) => ({
+      ...article,
+      urlToImage: article.urlToImage || DEFAULT_FALLBACK_IMAGE,
+    }));
   } catch (error) {
     console.error(`❌ Reddit API failed for r/${subreddit}:`, error);
     return [];
