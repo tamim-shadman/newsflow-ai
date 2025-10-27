@@ -924,113 +924,47 @@ const DIRECT_BUNDLE_PROVIDER_KEYS: Partial<Record<CategoryType, string>> = {
   all: "all-direct-bundle",
 };
 
-function slugify(value: string): string {
-  return value
-    .toLowerCase()
-    .replace(/[^a-z0-9]+/g, "-")
-    .replace(/(^-|-$)/g, "");
-}
-
-function extractHost(url: string): string | null {
-  try {
-    return new URL(url).hostname.replace(/^www\./, "");
-  } catch {
-    return null;
-  }
-}
-
-function formatSourceNameFromHost(host: string): string {
-  const parts = host.split(".");
-  const base = parts.length > 2 ? parts[parts.length - 2] : parts[0];
-  return base
-    .split(/[-_]/)
-    .filter(Boolean)
-    .map(part => part.charAt(0).toUpperCase() + part.slice(1))
-    .join(" ");
-}
-
-function buildDirectArticleUrl(site: string, slug: string, iteration: number): string {
-  try {
-    const url = new URL(site);
-    url.searchParams.set("ref", "newsflow-direct");
-    url.searchParams.set("topic", slug);
-    url.searchParams.set("seq", iteration.toString());
-    return url.toString();
-  } catch {
-    const sanitized = site.endsWith("/") ? site.slice(0, -1) : site;
-    return `${sanitized}?ref=newsflow-direct&topic=${slug}&seq=${iteration}`;
-  }
-}
-
-function generateDirectBundleArticles(config: DirectBundleConfig, pageSize: number): NewsAPIArticle[] {
-  const variations = [
-    { suffix: "Spotlight", summaryPrefix: "Spotlight on" },
-    { suffix: "Update", summaryPrefix: "Latest update on" },
-    { suffix: "Analysis", summaryPrefix: "In-depth analysis of" },
-    { suffix: "Briefing", summaryPrefix: "Briefing on" },
-    { suffix: "Daily", summaryPrefix: "Daily highlights for" },
-    { suffix: "Insight", summaryPrefix: "Key insight into" },
-  ];
-
-  const targetCount = Math.max(pageSize, config.minArticles);
+async function scrapeDirectSites(config: DirectBundleConfig, pageSize: number): Promise<NewsAPIArticle[]> {
   const articles: NewsAPIArticle[] = [];
-  const now = Date.now();
-  let iteration = 0;
-
-  outer: for (const site of config.sites) {
-    const host = extractHost(site);
-    if (!host) {
-      continue;
-    }
-
-    const sourceName = formatSourceNameFromHost(host);
-    const sourceId = slugify(host);
-
-    for (const topic of config.topics) {
-      for (const variation of variations) {
-        iteration += 1;
-        const slug = slugify(`${topic}-${variation.suffix}-${iteration}`);
-        const articleUrl = buildDirectArticleUrl(site, slug, iteration);
-        const offsetMinutes = (iteration * 12) % (48 * 60 - 30);
-        const publishedAt = new Date(now - offsetMinutes * 60_000).toISOString();
-        const description = `${variation.summaryPrefix} ${topic.toLowerCase()} from ${sourceName}.`;
-
-        articles.push({
-          source: { id: sourceId || null, name: sourceName || host },
-          author: `${sourceName || host} Desk`,
-          title: `${topic} ${variation.suffix} · ${sourceName || host}`,
-          description,
-          url: articleUrl,
-          urlToImage: getSmartFallbackImage(config.category, `${topic} ${variation.suffix}`, description),
-          publishedAt,
-          content: `${sourceName || host} covers ${topic.toLowerCase()} developments impacting ${config.category}.`,
-        });
-
-        if (articles.length >= targetCount) {
-          break outer;
-        }
+  const targetPerSite = Math.ceil(pageSize / Math.min(config.sites.length, 10)); // Get ~2-4 articles per site
+  
+  console.log(`[scrape-direct] Scraping ${config.category} from ${config.sites.length} sites (${targetPerSite} each)`);
+  
+  // Scrape sites in parallel (limit to first 10 sites for performance)
+  const sitesToScrape = config.sites.slice(0, 10);
+  const scrapePromises = sitesToScrape.map(async (siteUrl) => {
+    try {
+      const response = await axios.get('/api/scrape-site', {
+        params: { url: siteUrl },
+        timeout: 8000, // 8s timeout per site
+      });
+      
+      if (response.data?.success && response.data?.articles) {
+        const siteArticles = response.data.articles.slice(0, targetPerSite);
+        console.log(`[scrape-direct] ✓ ${siteUrl}: ${siteArticles.length} articles`);
+        return siteArticles;
       }
+      
+      console.warn(`[scrape-direct] ✗ ${siteUrl}: No articles returned`);
+      return [];
+    } catch (error) {
+      const msg = error instanceof Error ? error.message : 'Unknown error';
+      console.error(`[scrape-direct] ✗ ${siteUrl}: ${msg}`);
+      return [];
     }
-  }
-
-  if (articles.length < targetCount && articles.length > 0) {
-    let index = 0;
-    while (articles.length < targetCount) {
-      const template = articles[index % articles.length];
-      const cloneIndex = articles.length + 1;
-      const adjustedMinutes = (cloneIndex * 7) % (48 * 60 - 15);
-      const clone: NewsAPIArticle = {
-        ...template,
-        title: `${template.title} (Extended Coverage ${cloneIndex})`,
-        url: `${template.url}-extended-${cloneIndex}`,
-        publishedAt: new Date(now - adjustedMinutes * 60_000).toISOString(),
-      };
-      articles.push(clone);
-      index += 1;
+  });
+  
+  const results = await Promise.allSettled(scrapePromises);
+  
+  results.forEach((result, index) => {
+    if (result.status === 'fulfilled' && result.value) {
+      articles.push(...result.value);
     }
-  }
-
-  return articles.slice(0, targetCount);
+  });
+  
+  console.log(`[scrape-direct] Total scraped: ${articles.length} articles from ${config.category} sites`);
+  
+  return articles;
 }
 
 function getDirectBundleProviders(category: CategoryType): ProviderConfig[] {
@@ -2060,9 +1994,9 @@ async function tryAPI(
   try {
     const directBundleConfig = DIRECT_BUNDLE_CONFIGS[apiName];
     if (directBundleConfig) {
-      const directArticles = generateDirectBundleArticles(directBundleConfig, pageSize);
+      const directArticles = await scrapeDirectSites(directBundleConfig, pageSize);
       console.log(
-        `🧾 Direct bundle ${apiName} produced ${directArticles.length} articles (requested ${pageSize})`
+        `🧾 Direct scraping ${apiName} produced ${directArticles.length} articles (requested ${pageSize})`
       );
       return directArticles;
     }

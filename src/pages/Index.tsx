@@ -558,6 +558,7 @@ const Index = () => {
   const handleArticleClick = useCallback((url?: string, title?: string) => {
     if (url) {
       console.log('🖱️ Article clicked:', title?.substring(0, 40) + '...', '→', url);
+      // Open article in new tab (direct link to source)
       window.open(url, "_blank", "noopener,noreferrer");
     } else {
       console.warn('⚠️ Article clicked but no URL provided for:', title);
