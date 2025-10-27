@@ -1,3 +1,5 @@
+import { load } from "cheerio";
+
 const JINA_READER_BASE = "https://r.jina.ai/";
 const CATEGORY_KEYWORDS = new Set([
   "news",
@@ -82,136 +84,467 @@ function normalizeUrl(url) {
   }
 }
 
-function extractArticlesFromHTML(html, sourceUrl) {
-  const articles = [];
-  const seenUrls = new Set();
-  
-  if (!html) return articles;
-  
-  const sourceDomain = new URL(sourceUrl).hostname.replace(/^www\./, "");
-  const sourceName = sourceDomain.split('.')[0]
+const PATH_BLOCKLIST = new Set([
+  "category",
+  "categories",
+  "tag",
+  "tags",
+  "topic",
+  "topics",
+  "section",
+  "sections",
+  "author",
+  "authors",
+  "people",
+  "about",
+  "contact",
+  "privacy",
+  "terms",
+  "subscribe",
+  "subscription",
+  "signup",
+  "login",
+  "register",
+  "videos",
+  "video",
+  "photos",
+  "photo",
+]);
+
+function cleanText(value) {
+  return typeof value === "string" ? value.replace(/\s+/g, " ").trim() : "";
+}
+
+function buildSourceName(sourceDomain) {
+  return sourceDomain
+    .split('.')[0]
     .split(/[-_]/)
     .map(word => word.charAt(0).toUpperCase() + word.slice(1))
     .join(' ');
+}
 
-  // Match article containers with title, link, and optional image/description
-  // Pattern 1: <article> or <div class="article/post/story/news">
-  const articlePatterns = [
-    // Match complete article blocks with various HTML structures
-    /<(?:article|div)[^>]*class=["'][^"']*(?:article|post|story|news|item|card)[^"']*["'][^>]*>([\s\S]{50,2000}?)<\/(?:article|div)>/gi,
-    // Match h2/h3 with links (common in news sites)
+function toAbsoluteUrl(baseUrl, href) {
+  if (!href) return null;
+  const trimmed = href.trim();
+  if (!trimmed || trimmed.startsWith('#')) return null;
+  if (trimmed.toLowerCase().startsWith('javascript:')) return null;
+
+  if (/^https?:/i.test(trimmed)) {
+    return trimmed;
+  }
+
+  try {
+    const base = new URL(baseUrl);
+    if (trimmed.startsWith('//')) {
+      return `${base.protocol}${trimmed}`;
+    }
+    if (trimmed.startsWith('/')) {
+      return `${base.protocol}//${base.hostname}${trimmed}`;
+    }
+  } catch {
+    return null;
+  }
+
+  return null;
+}
+
+function toAbsoluteImageUrl(baseUrl, src) {
+  if (!src || src.startsWith('data:')) return null;
+  return toAbsoluteUrl(baseUrl, src);
+}
+
+function isLikelyCategoryPath(pathSegments) {
+  if (pathSegments.length === 0) {
+    return true;
+  }
+
+  const normalized = pathSegments.map(seg => seg.toLowerCase());
+  if (normalized.some(seg => PATH_BLOCKLIST.has(seg))) {
+    return true;
+  }
+
+  const last = normalized[normalized.length - 1];
+  const hasDigits = /\d/.test(last);
+  const hasHyphen = last.includes('-');
+
+  if (CATEGORY_KEYWORDS.has(last)) {
+    return true;
+  }
+
+  if (normalized.length === 1) {
+    if (!hasDigits && !hasHyphen && last.length <= 24) {
+      return true;
+    }
+  } else if (normalized.length === 2) {
+    const prev = normalized[0];
+    if (CATEGORY_KEYWORDS.has(prev) || PATH_BLOCKLIST.has(prev)) {
+      return true;
+    }
+    if (!hasDigits && !hasHyphen && !/\d/.test(prev) && last.length <= 24) {
+      return true;
+    }
+  }
+
+  if (!hasDigits && normalized.length <= 2) {
+    const matched = CATEGORY_SUBSTRINGS.some(substr => last.includes(substr));
+    if (matched) {
+      return true;
+    }
+  }
+
+  return false;
+}
+
+function normalizeArticleUrl(candidateUrl, sourceDomain) {
+  if (!candidateUrl) return null;
+
+  try {
+    const url = new URL(candidateUrl);
+    const articleDomain = url.hostname.replace(/^www\./, "");
+    if (articleDomain !== sourceDomain) {
+      return null;
+    }
+
+    const pathSegments = url.pathname.split('/').filter(Boolean);
+    if (isLikelyCategoryPath(pathSegments)) {
+      return null;
+    }
+
+    return url.toString();
+  } catch {
+    return null;
+  }
+}
+
+function extractTitle($anchor) {
+  const candidates = [
+    cleanText($anchor.text()),
+    cleanText($anchor.attr('aria-label')),
+    cleanText($anchor.attr('title')),
+    cleanText($anchor.attr('data-title')),
+  ];
+
+  return candidates.find(text => text && text.length >= 8) || null;
+}
+
+function findContainer($, $anchor) {
+  const selectors = [
+    'article',
+    '[role="article"]',
+    '[data-component*="Card"]',
+    '[data-testid*="card"]',
+    '[class*="card"]',
+    '[class*="story"]',
+    '[class*="item"]',
+    '[class*="article"]',
+    'li',
+  ];
+
+  for (const selector of selectors) {
+    const container = $anchor.closest(selector);
+    if (container.length) {
+      return container;
+    }
+  }
+
+  return $anchor.parent();
+}
+
+function findDescription($, $anchor, $container, sourceName, title) {
+  const collected = [];
+  const normalizedTitle = cleanText(title).toLowerCase();
+
+  const collectText = (text) => {
+    const cleaned = cleanText(text);
+    if (!cleaned || cleaned.length < 20) return;
+    if (cleaned.toLowerCase() === normalizedTitle) return;
+    if (!collected.includes(cleaned)) {
+      collected.push(cleaned);
+    }
+  };
+
+  if ($container && $container.length) {
+    $container.find('p').each((_, el) => {
+      collectText($(el).text());
+    });
+
+    if (collected.length === 0) {
+      const sibling = $container.nextAll('p').first();
+      if (sibling.length) {
+        collectText(sibling.text());
+      }
+    }
+  }
+
+  if (collected.length === 0) {
+    collectText($anchor.attr('data-summary'));
+    collectText($anchor.attr('title'));
+  }
+
+  return collected[0] || `Latest from ${sourceName}`;
+}
+
+function extractImageSource($img) {
+  if (!$img || !$img.length) return null;
+  const srcset = cleanText($img.attr('data-srcset') || $img.attr('srcset'));
+  let src = $img.attr('data-src') || $img.attr('data-lazy-src') || $img.attr('data-original') || $img.attr('src');
+  if (!src && srcset) {
+    src = srcset.split(',')[0]?.trim().split(' ')[0];
+  }
+  return src;
+}
+
+function findImage($, $anchor, $container, sourceUrl) {
+  const candidates = [];
+
+  if ($container && $container.length) {
+    $container.find('img').each((_, el) => {
+      candidates.push($(el));
+    });
+  }
+
+  if (!candidates.length) {
+    const nested = $anchor.find('img').first();
+    if (nested.length) {
+      candidates.push(nested);
+    }
+  }
+
+  for (const $img of candidates) {
+    const rawSource = extractImageSource($img);
+    const resolved = toAbsoluteImageUrl(sourceUrl, rawSource);
+    if (resolved) {
+      return resolved;
+    }
+    const pictureSource = $img.closest('picture').find('source').first();
+    if (pictureSource.length) {
+      const pictureSrc = pictureSource.attr('srcset') || pictureSource.attr('data-srcset');
+      const absolute = toAbsoluteImageUrl(sourceUrl, pictureSrc?.split(',')[0]?.trim().split(' ')[0]);
+      if (absolute) {
+        return absolute;
+      }
+    }
+  }
+
+  return null;
+}
+
+function parseDateTime(value) {
+  if (!value) return null;
+  const trimmed = cleanText(value);
+  if (!trimmed) return null;
+  const parsed = new Date(trimmed);
+  if (!Number.isNaN(parsed.getTime())) {
+    return parsed.toISOString();
+  }
+  return null;
+}
+
+function findPublishedAt($, $anchor, $container) {
+  const candidates = [];
+
+  if ($container && $container.length) {
+    $container.find('time').each((_, el) => {
+      candidates.push($(el));
+    });
+  }
+
+  const closestTime = $anchor.closest('time');
+  if (closestTime.length) {
+    candidates.push(closestTime);
+  }
+
+  for (const $time of candidates) {
+    const datetime = $time.attr('datetime') || $time.attr('data-datetime') || $time.attr('data-time');
+    if (datetime) {
+      return cleanText(datetime);
+    }
+    const parsed = parseDateTime($time.text());
+    if (parsed) {
+      return parsed;
+    }
+  }
+
+  return new Date().toISOString();
+}
+
+function buildArticleFromAnchor($, $anchor, sourceUrl, sourceName, sourceDomain) {
+  const absoluteUrl = toAbsoluteUrl(sourceUrl, $anchor.attr('href'));
+  const normalizedUrl = normalizeArticleUrl(absoluteUrl, sourceDomain);
+  if (!normalizedUrl) {
+    return null;
+  }
+
+  const title = extractTitle($anchor);
+  if (!title || title.length < 8 || title.length > 200) {
+    return null;
+  }
+  if (/^(home|read more|click here|view all|watch|listen|video|more)$/i.test(title)) {
+    return null;
+  }
+
+  const $container = findContainer($, $anchor);
+  const description = findDescription($, $anchor, $container, sourceName, title);
+  const imageUrl = findImage($, $anchor, $container, sourceUrl);
+  const publishedAt = findPublishedAt($, $anchor, $container);
+
+  return {
+    source: { id: sourceDomain, name: sourceName },
+    author: sourceName,
+    title,
+    description: description.substring(0, 300),
+    url: normalizedUrl,
+    urlToImage: imageUrl,
+    publishedAt,
+    content: description,
+  };
+}
+
+function extractWithCheerio(html, sourceUrl) {
+  if (!html) return [];
+
+  const source = new URL(sourceUrl);
+  const sourceDomain = source.hostname.replace(/^www\./, "");
+  const sourceName = buildSourceName(sourceDomain);
+  const $ = load(html);
+  const articles = [];
+  const seenUrls = new Set();
+
+  const selectors = [
+    'article a[href]',
+    '[role="article"] a[href]',
+    '[data-component*="Card"] a[href]',
+    '[data-testid*="card"] a[href]',
+    '[class*="card"] a[href]',
+    '[class*="story"] a[href]',
+    '[class*="headline"] a[href]',
+    '[class*="item"] a[href]',
+    'h2 a[href]',
+    'h3 a[href]'
+  ];
+
+  const collectedAnchors = [];
+  const seenKeys = new Set();
+
+  const collectAnchor = (el) => {
+    const $anchor = $(el);
+    const href = $anchor.attr('href');
+    if (!href) return;
+    const key = `${href}::${cleanText($anchor.text()).slice(0, 80)}`;
+    if (seenKeys.has(key)) return;
+    seenKeys.add(key);
+    collectedAnchors.push(el);
+  };
+
+  selectors.forEach(selector => {
+    $(selector).each((_, el) => {
+      collectAnchor(el);
+    });
+  });
+
+  if (collectedAnchors.length < 15) {
+    $('a[href]').each((_, el) => {
+      collectAnchor(el);
+    });
+  }
+
+  for (const anchorEl of collectedAnchors) {
+    const $anchor = $(anchorEl);
+    const article = buildArticleFromAnchor($, $anchor, sourceUrl, sourceName, sourceDomain);
+    if (!article) continue;
+    if (seenUrls.has(article.url)) continue;
+    seenUrls.add(article.url);
+    articles.push(article);
+    if (articles.length >= 30) {
+      break;
+    }
+  }
+
+  return articles;
+}
+
+function extractWithRegex(html, sourceUrl, existingUrls = new Set()) {
+  const articles = [];
+  if (!html) return articles;
+
+  const sourceDomain = new URL(sourceUrl).hostname.replace(/^www\./, "");
+  const sourceName = buildSourceName(sourceDomain);
+
+  const patterns = [
+    /<(?:article|div)[^>]*class=["'][^"']*(?:article|post|story|news|item|card)[^"']*["'][^>]*>([\s\S]{50,3000}?)<\/(?:article|div)>/gi,
     /<(?:h2|h3)[^>]*>[\s\S]*?<a[^>]+href=["']([^"']+)["'][^>]*>([^<]+)<\/a>[\s\S]*?<\/(?:h2|h3)>/gi,
   ];
 
-  for (const pattern of articlePatterns) {
+  for (const pattern of patterns) {
     const matches = html.matchAll(pattern);
-    
     for (const match of matches) {
       if (articles.length >= 20) break;
-      
       const block = match[0];
-      
-      // Extract article URL
-      const urlMatch = block.match(/href=["']([^"']+)["']/);
-      if (!urlMatch) continue;
-      
-      let articleUrl = urlMatch[1];
-      
-      // Skip non-article links
-      if (!articleUrl || articleUrl.includes('#') || articleUrl.includes('javascript:')) continue;
-      if (/\/(tag|category|author|search|page|login|signup|subscribe|about|contact|privacy|terms)/i.test(articleUrl)) continue;
-      
-      // Make URL absolute
-      if (articleUrl.startsWith('/')) {
-        const base = new URL(sourceUrl);
-        articleUrl = `${base.protocol}//${base.hostname}${articleUrl}`;
-      } else if (!articleUrl.startsWith('http')) {
-        continue;
-      }
-      
-      // Verify same domain and basic article-like path
-      try {
-        const articleLocation = new URL(articleUrl);
-        const articleDomain = articleLocation.hostname.replace(/^www\./, "");
-        if (articleDomain !== sourceDomain) continue;
+      const hrefMatch = block.match(/href=["']([^"']+)["']/i);
+      if (!hrefMatch) continue;
+      const candidateHref = hrefMatch[1];
+      const absoluteUrl = toAbsoluteUrl(sourceUrl, candidateHref);
+      const normalizedUrl = normalizeArticleUrl(absoluteUrl, sourceDomain);
+      if (!normalizedUrl || existingUrls.has(normalizedUrl)) continue;
 
-        const pathSegments = articleLocation.pathname.split('/').filter(Boolean);
-        const lastSegment = pathSegments[pathSegments.length - 1] || '';
-        const normalizedSegments = pathSegments.map(seg => seg.toLowerCase());
-        const looksLikeCategorySlug = (
-          pathSegments.length === 0 ||
-          (pathSegments.length === 1 && (
-            CATEGORY_KEYWORDS.has(lastSegment.toLowerCase()) ||
-            (!/[0-9]/.test(lastSegment) && !lastSegment.includes('-') && lastSegment.length <= 24)
-          )) ||
-          (pathSegments.length === 2 && (
-            CATEGORY_KEYWORDS.has(lastSegment.toLowerCase()) ||
-            (!/[0-9]/.test(lastSegment) && !lastSegment.includes('-') && !/[0-9]/.test(pathSegments[0]))
-          ))
-        );
-
-        if (looksLikeCategorySlug) continue;
-
-        if (normalizedSegments.some(seg => ["category", "categories", "tag", "tags", "topic", "topics", "section", "sections"].includes(seg))) {
-          continue;
-        }
-
-        const containsCategorySubstr = CATEGORY_SUBSTRINGS.some(substr => lastSegment.toLowerCase().includes(substr));
-        if (containsCategorySubstr && pathSegments.length <= 2 && !/[0-9]/.test(lastSegment)) {
-          continue;
-        }
-      } catch {
-        continue;
-      }
-
-      if (seenUrls.has(articleUrl)) continue;
-      
-      // Extract title (from link text or heading)
       const titleMatch = block.match(/<(?:a|h2|h3)[^>]*>([^<]+)<\/(?:a|h2|h3)>/i) ||
-                        block.match(/title=["']([^"']+)["']/i) ||
-                        block.match(/alt=["']([^"']+)["']/i);
-      
-      const title = titleMatch ? titleMatch[1].trim() : null;
-      if (!title || title.length < 10 || title.length > 200) continue;
-      if (/^(home|read more|click here|view all|about|contact)/i.test(title)) continue;
-      
-      // Extract image
+        block.match(/title=["']([^"']+)["']/i) ||
+        block.match(/alt=["']([^"']+)["']/i);
+      const title = titleMatch ? cleanText(titleMatch[1]) : null;
+      if (!title || title.length < 8 || title.length > 200) continue;
+      if (/^(home|read more|click here|view all|watch|listen|video|more)$/i.test(title)) continue;
+
       const imgMatch = block.match(/<img[^>]+src=["']([^"']+)["']/i);
-      let imageUrl = imgMatch ? imgMatch[1] : null;
-      
-      if (imageUrl && imageUrl.startsWith('/')) {
-        const base = new URL(sourceUrl);
-        imageUrl = `${base.protocol}//${base.hostname}${imageUrl}`;
-      }
-      
-      // Extract description/excerpt
-      const descMatch = block.match(/<p[^>]*>([^<]{20,300})<\/p>/i) ||
-                       block.match(/class=["'][^"']*(?:excerpt|summary|description)[^"']*["'][^>]*>([^<]+)</i);
-      
-      const description = descMatch ? descMatch[1].trim().replace(/\s+/g, ' ') : `Latest from ${sourceName}`;
-      
-      // Extract time if available
+      const imageUrl = toAbsoluteImageUrl(sourceUrl, imgMatch ? imgMatch[1] : null);
+
+      const descMatch = block.match(/<p[^>]*>([^<]{20,350})<\/p>/i) ||
+        block.match(/class=["'][^"']*(?:excerpt|summary|description)[^"']*["'][^>]*>([^<]+)/i);
+      const description = descMatch ? cleanText(descMatch[1]) : `Latest from ${sourceName}`;
+
       const timeMatch = block.match(/<time[^>]*datetime=["']([^"']+)["']/i) ||
-                       block.match(/(\d{1,2}\s+(?:minute|hour|day)s?\s+ago)/i);
-      
-      const publishedAt = timeMatch ? (timeMatch[1].includes('ago') ? new Date().toISOString() : timeMatch[1]) : new Date().toISOString();
-      
+        block.match(/(\d{1,2}\s+(?:minute|hour|day)s?\s+ago)/i);
+      const publishedAt = timeMatch ? (timeMatch[1].includes('ago') ? new Date().toISOString() : cleanText(timeMatch[1])) : new Date().toISOString();
+
       articles.push({
         source: { id: sourceDomain, name: sourceName },
         author: sourceName,
-        title: title,
-        description: description.substring(0, 200),
-        url: articleUrl,
+        title,
+        description: description.substring(0, 300),
+        url: normalizedUrl,
         urlToImage: imageUrl,
-        publishedAt: publishedAt,
-        content: description
+        publishedAt,
+        content: description,
       });
 
-      seenUrls.add(articleUrl);
+      existingUrls.add(normalizedUrl);
     }
   }
-  
+
   return articles;
+}
+
+function extractArticlesFromHTML(html, sourceUrl) {
+  const primary = extractWithCheerio(html, sourceUrl);
+  const existing = new Set(primary.map(article => article.url));
+
+  if (primary.length >= 18) {
+    return primary.slice(0, 20);
+  }
+
+  const fallback = extractWithRegex(html, sourceUrl, existing);
+  const combined = [...primary, ...fallback];
+
+  const unique = [];
+  const seen = new Set();
+  for (const article of combined) {
+    if (!article || !article.url) continue;
+    if (seen.has(article.url)) continue;
+    seen.add(article.url);
+    unique.push(article);
+    if (unique.length >= 20) break;
+  }
+
+  return unique;
 }
 
 export default async function handler(req, res) {
