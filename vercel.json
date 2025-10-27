@@ -1,20 +1,10 @@
 {
-  "crons": [
-    {
-      "path": "/api/warm-cache",
-      "schedule": "*/15 * * * *"
-    }
-  ],
   "functions": {
     "api/*.js": {
       "memory": 1024,
       "maxDuration": 10
     },
-    "api/warm-cache.js": {
-      "memory": 1024,
-      "maxDuration": 30
-    },
-    "api/fetch-article.js": {
+    "api/scrape-site.js": {
       "memory": 1024,
       "maxDuration": 15
     }
