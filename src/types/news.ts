@@ -35,6 +35,20 @@ export interface NewsAPIResponse {
   articles: NewsAPIArticle[];
 }
 
+export interface ArticleContent {
+  title: string | null;
+  content: string;
+  author: string | null;
+  publishedDate: string | null;
+  imageUrl: string | null;
+  excerpt: string | null;
+  source: string | null;
+  url: string;
+  provider: "jina-reader" | "mercury-parser";
+  wordCount?: number | null;
+  language?: string | null;
+}
+
 export interface EnhancedArticle {
   originalTitle: string;
   enhancedTitle: string;
