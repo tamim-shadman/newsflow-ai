@@ -2,10 +2,6 @@
   "functions": {
     "api/*.js": {
       "memory": 1024,
-      "maxDuration": 10
-    },
-    "api/scrape-site.js": {
-      "memory": 1024,
       "maxDuration": 15
     }
   },
