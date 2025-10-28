@@ -1,148 +1,119 @@
-import { chromium } from 'playwright-core';
+/**
+ * Browser Scraper Utility
+ * Uses Puppeteer with @sparticuz/chromium for serverless environments (Vercel)
+ * Provides headless browser scraping as a fallback when Jina Reader and Mercury Parser fail
+ */
 
-let browserInstance = null;
-let browserContext = null;
+import puppeteer from 'puppeteer-core';
+import chromium from '@sparticuz/chromium';
+
+let browser = null;
 
 /**
- * Get or create a browser instance (reused across requests)
+ * Get or create a browser instance
+ * Reuses the same browser across requests to improve performance
  */
 async function getBrowser() {
-  if (browserInstance && browserInstance.isConnected()) {
-    return browserInstance;
+  if (browser && browser.isConnected()) {
+    return browser;
   }
 
   try {
-    // Use chromium-browserless if available in Vercel, otherwise local chromium
-    const executablePath = process.env.PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH || undefined;
+    console.log('[browserScraper] 🚀 Launching headless browser...');
     
-    browserInstance = await chromium.launch({
-      headless: true,
-      args: [
-        '--no-sandbox',
-        '--disable-setuid-sandbox',
-        '--disable-dev-shm-usage',
-        '--disable-accelerated-2d-canvas',
-        '--no-first-run',
-        '--no-zygote',
-        '--disable-gpu',
-        '--single-process',
-      ],
-      executablePath,
+    // Configure chromium for serverless
+    const executablePath = await chromium.executablePath();
+    
+    browser = await puppeteer.launch({
+      args: chromium.args,
+      defaultViewport: chromium.defaultViewport,
+      executablePath: executablePath,
+      headless: chromium.headless,
+      ignoreHTTPSErrors: true,
     });
-
-    // Create a persistent context
-    browserContext = await browserInstance.newContext({
-      userAgent: 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
-      viewport: { width: 1920, height: 1080 },
-      locale: 'en-US',
-    });
-
-    console.log('[BrowserScraper] ✅ Browser instance created');
-    return browserInstance;
+    
+    console.log('[browserScraper] ✅ Browser launched successfully');
+    return browser;
   } catch (error) {
-    console.error('[BrowserScraper] ❌ Failed to launch browser:', error);
+    console.error('[browserScraper] ❌ Failed to launch browser:', error.message);
     throw error;
   }
 }
 
 /**
- * Fetch URL with headless browser
- * @param {string} url - Target URL
- * @param {number} timeout - Timeout in milliseconds
- * @returns {Promise<string>} HTML content
+ * Fetch HTML content using headless browser
+ * @param {string} url - The URL to fetch
+ * @param {number} timeout - Maximum time to wait (milliseconds)
+ * @returns {Promise<string>} The HTML content
  */
 export async function fetchWithBrowser(url, timeout = 15000) {
   let page = null;
-
+  
   try {
-    console.log(`[BrowserScraper] 🌐 Fetching with browser: ${url}`);
+    const browserInstance = await getBrowser();
+    page = await browserInstance.newPage();
     
-    await getBrowser();
+    // Set a realistic user agent
+    await page.setUserAgent(
+      'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36'
+    );
     
-    if (!browserContext) {
-      throw new Error('Browser context not available');
-    }
-
-    page = await browserContext.newPage();
-
     // Set extra headers
     await page.setExtraHTTPHeaders({
       'Accept-Language': 'en-US,en;q=0.9',
-      'Accept-Encoding': 'gzip, deflate, br',
+      'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8',
     });
-
-    // Navigate with retry logic
-    let attempts = 0;
-    let lastError = null;
     
-    while (attempts < 2) {
-      try {
-        await page.goto(url, {
-          waitUntil: 'domcontentloaded',
-          timeout: timeout,
-        });
-        break;
-      } catch (error) {
-        lastError = error;
-        attempts++;
-        if (attempts < 2) {
-          console.log(`[BrowserScraper] ⚠️ Attempt ${attempts} failed, retrying...`);
-          await new Promise(resolve => setTimeout(resolve, 1000));
-        }
-      }
-    }
-
-    if (attempts === 2) {
-      throw lastError;
-    }
-
-    // Wait for content to load
-    await page.waitForLoadState('domcontentloaded');
-
-    // Get the HTML
+    console.log(`[browserScraper] 🌐 Navigating to: ${url}`);
+    
+    // Navigate with timeout and wait for network idle
+    await page.goto(url, {
+      timeout: timeout,
+      waitUntil: 'networkidle2', // Wait until network is mostly idle
+    });
+    
+    // Wait a bit for any dynamic content to load
+    await page.waitForTimeout(1000);
+    
+    // Get the HTML content
     const html = await page.content();
-
-    console.log(`[BrowserScraper] ✅ Successfully fetched ${html.length} chars from ${url}`);
     
+    console.log(`[browserScraper] ✅ Fetched ${html.length} characters from ${url}`);
+    
+    await page.close();
     return html;
+    
   } catch (error) {
-    console.error(`[BrowserScraper] ❌ Failed to fetch ${url}:`, error.message);
-    throw error;
-  } finally {
+    console.error(`[browserScraper] ❌ Error fetching ${url}:`, error.message);
+    
     if (page) {
       try {
         await page.close();
-      } catch (e) {
-        // Ignore close errors
+      } catch (closeError) {
+        console.error('[browserScraper] Failed to close page:', closeError.message);
       }
     }
+    
+    throw error;
   }
 }
 
 /**
- * Clean up browser resources
+ * Close the browser instance
+ * Should be called during cleanup
  */
 export async function closeBrowser() {
-  if (browserContext) {
+  if (browser) {
     try {
-      await browserContext.close();
-      browserContext = null;
-    } catch (e) {
-      console.error('[BrowserScraper] Error closing context:', e);
-    }
-  }
-
-  if (browserInstance) {
-    try {
-      await browserInstance.close();
-      browserInstance = null;
-      console.log('[BrowserScraper] 🔒 Browser instance closed');
-    } catch (e) {
-      console.error('[BrowserScraper] Error closing browser:', e);
+      await browser.close();
+      browser = null;
+      console.log('[browserScraper] 🔒 Browser closed');
+    } catch (error) {
+      console.error('[browserScraper] Error closing browser:', error.message);
     }
   }
 }
 
-// Clean up on process exit
+// Clean up on process termination
 process.on('SIGINT', closeBrowser);
 process.on('SIGTERM', closeBrowser);
