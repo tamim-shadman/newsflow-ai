@@ -694,27 +694,63 @@ export default async function handler(req, res) {
     let html = "";
     let fetchMethod = "unknown";
     
-    // For Bangladesh category: Use Cheerio-based scraper (no Puppeteer dependencies)
+    // For Bangladesh category: Use aggressive Jina Reader strategy (no browser fallback in serverless)
     if (category === "bangladesh") {
-      console.log(`[scrape-site] 🇧🇩 Bangladesh category - using Cheerio-based scraper`);
+      console.log(`[scrape-site] 🇧🇩 Bangladesh category - using Jina Reader with direct fetch fallback`);
       
+      // Strategy 1 (Bangladesh): Jina Reader with aggressive headers
       try {
-        const result = await bangladeshScrape(targetUrl);
-        
-        if (result.success) {
-          html = result.content || "";
-          fetchMethod = result.method || "cheerio";
-          console.log(`[scrape-site] ✅ Bangladesh scraper successful (${html.length} chars, method: ${fetchMethod})`);
+        const jinaUrl = `${JINA_READER_BASE}${encodeURIComponent(targetUrl)}`;
+        const response = await fetch(jinaUrl, {
+          headers: {
+            Accept: "application/json",
+            "X-Return-Format": "html",
+            "X-With-Images-Summary": "true",
+            "X-Timeout": "15", // Increased timeout for .bd sites
+            "X-Wait-For-Selector": "article, .article, .post, .content",
+          },
+          signal: AbortSignal.timeout(15000), // 15s timeout for Bangladesh
+        });
+
+        if (response.ok) {
+          const data = await response.json();
+          html = data?.data?.content || data?.data?.html || "";
+          fetchMethod = "jina";
+          console.log(`[scrape-site] ✅ Jina Reader fetched HTML (${html.length} chars)`);
         } else {
-          console.error(`[scrape-site] ❌ Bangladesh scraper failed:`, result.error);
-          throw new Error(result.error || "Bangladesh scraper failed");
+          console.warn(`[scrape-site] ⚠️ Jina Reader error ${response.status}, trying direct fetch...`);
+          throw new Error(`Jina error ${response.status}`);
         }
-      } catch (bangladeshError) {
-        console.error(`[scrape-site] ❌ Bangladesh scraping failed:`, bangladeshError.message);
-        throw new Error(`Bangladesh scraping failed: ${bangladeshError.message}`);
+      } catch (jinaError) {
+        // Strategy 2 (Bangladesh): Direct fetch with axios (simpler, more reliable)
+        console.log(`[scrape-site] � Attempting direct fetch for ${targetUrl}`);
+        await new Promise(resolve => setTimeout(resolve, 500));
+        
+        try {
+          const axios = (await import('axios')).default;
+          const directResponse = await axios.get(targetUrl, {
+            timeout: 10000,
+            headers: {
+              'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+              'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
+              'Accept-Language': 'en-US,en;q=0.5',
+            }
+          });
+          
+          if (directResponse.data) {
+            html = directResponse.data;
+            fetchMethod = "direct";
+            console.log(`[scrape-site] ✅ Direct fetch successful (${html.length} chars)`);
+          } else {
+            throw new Error("Direct fetch returned no content");
+          }
+        } catch (directError) {
+          console.error(`[scrape-site] ❌ All Bangladesh fetch strategies failed:`, directError.message);
+          throw new Error(`All strategies failed: ${directError.message}`);
+        }
       }
     } else {
-      // For other categories: Use original Jina → Direct → Cheerio strategy
+      // For other categories: Use original Jina → Direct → Browser strategy
       
       // Strategy 1: Try Jina Reader first (fastest, cleanest)
       try {
