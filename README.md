@@ -146,6 +146,9 @@ SEMANTIC_SCHOLAR_API_KEY=your_semanticscholar_key
 # Hugging Face Daily Papers (no key required): https://huggingface.co/papers
 HUGGING_FACE_PAPERS_API=https://huggingface.co/api/daily_papers
 
+# OpenReview (no key required): https://docs.openreview.net/
+OPENREVIEW_API_BASE=https://api.openreview.net
+
 # ===== SPECIALIZED APIS (Optional but recommended) =====
 # Alpha Vantage (25/day): https://www.alphavantage.co
 ALPHA_VANTAGE_API_KEY=your_alphavantage_key

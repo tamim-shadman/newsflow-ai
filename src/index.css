@@ -160,6 +160,30 @@ All colors MUST be HSL.
     scrollbar-color: rgba(168, 85, 247, 0.7) rgba(168, 85, 247, 0.1);
   }
 
+  .scrollbar-elevated::-webkit-scrollbar {
+    width: 10px;
+  }
+
+  .scrollbar-elevated::-webkit-scrollbar-track {
+    background: rgba(10, 16, 35, 0.6);
+    border-radius: 9999px;
+  }
+
+  .scrollbar-elevated::-webkit-scrollbar-thumb {
+    background: linear-gradient(180deg, rgba(99, 102, 241, 0.78), rgba(236, 72, 153, 0.78));
+    border-radius: 9999px;
+    border: 2px solid rgba(10, 16, 35, 0.85);
+  }
+
+  .scrollbar-elevated::-webkit-scrollbar-thumb:hover {
+    background: linear-gradient(180deg, rgba(129, 140, 248, 0.9), rgba(244, 114, 182, 0.9));
+  }
+
+  .scrollbar-elevated {
+    scrollbar-width: thin;
+    scrollbar-color: rgba(139, 92, 246, 0.78) rgba(10, 16, 35, 0.6);
+  }
+
   /* Custom scrollbar thumb colors */
   .scrollbar-thumb-white\/20::-webkit-scrollbar-thumb {
     background: rgba(255, 255, 255, 0.2);

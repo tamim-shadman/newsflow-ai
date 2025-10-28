@@ -8,6 +8,13 @@ const ARXIV_API_BASE = process.env.ARXIV_API_BASE || "https://export.arxiv.org/a
 const SEMANTIC_SCHOLAR_API_BASE = process.env.SEMANTIC_SCHOLAR_API_BASE || "https://api.semanticscholar.org/graph/v1";
 const SEMANTIC_SCHOLAR_API_KEY = process.env.SEMANTIC_SCHOLAR_API_KEY || "";
 const HUGGING_FACE_PAPERS_API = process.env.HUGGING_FACE_PAPERS_API || "https://huggingface.co/api/daily_papers";
+const OPENREVIEW_API_BASE = process.env.OPENREVIEW_API_BASE || "https://api.openreview.net";
+const OPENREVIEW_VENUES = [
+  "NeurIPS 2024",
+  "ICLR 2025",
+  "ICML 2024",
+  "ACL 2024",
+];
 
 const parser = new XMLParser({
   ignoreAttributes: false,
@@ -250,6 +257,77 @@ async function fetchHuggingFacePapers({ limit, since }) {
     .filter((paper) => withinWindow(paper.publishedAt, since));
 }
 
+function ensureAbsolutePdfUrl(pdf) {
+  if (!pdf) return null;
+  if (pdf.startsWith("http")) return pdf;
+  if (pdf.startsWith("/")) return `https://openreview.net${pdf}`;
+  return pdf;
+}
+
+async function fetchOpenReviewPapers({ limit, since }) {
+  const base = OPENREVIEW_API_BASE.replace(/\/$/, "");
+  const perVenueLimit = Math.max(1, Math.ceil(limit / OPENREVIEW_VENUES.length));
+  const results = [];
+
+  for (const venue of OPENREVIEW_VENUES) {
+    const params = new URLSearchParams({
+      "content.venue": venue,
+      sort: "tmdate:desc",
+      limit: String(Math.min(perVenueLimit, HARD_LIMIT)),
+      details: "replyCount",
+    });
+
+    try {
+      const response = await fetch(`${base}/notes?${params.toString()}`, {
+        method: "GET",
+        headers: {
+          Accept: "application/json",
+          "User-Agent": "NewsFlow-AI-Research/1.0 (https://newsflow.ai)",
+        },
+      });
+
+      if (!response.ok) {
+        console.warn(`[openreview] ${venue} request failed with status ${response.status}`);
+        continue;
+      }
+
+      const payload = await response.json();
+      const notes = Array.isArray(payload?.notes) ? payload.notes : Array.isArray(payload) ? payload : [];
+
+      notes.forEach((note) => {
+        const content = note?.content || {};
+        const authors = Array.isArray(content.authors)
+          ? content.authors.filter((author) => typeof author === "string")
+          : [];
+        const publishedAt = typeof note?.cdate === "number" ? new Date(note.cdate).toISOString() : null;
+        const keywords = Array.isArray(content.keywords)
+          ? content.keywords.filter((kw) => typeof kw === "string")
+          : [];
+
+        results.push({
+          id: note?.id || note?.forum || Math.random().toString(36).slice(2),
+          title: content.title || "OpenReview submission",
+          summary: content.abstract || null,
+          authors,
+          publishedAt: publishedAt ?? new Date().toISOString(),
+          url: note?.id || note?.forum ? `https://openreview.net/forum?id=${note.id || note.forum}` : "",
+          source: "openreview",
+          sourceName: "OpenReview",
+          venue: content.venue || venue,
+          citations: null,
+          tags: keywords,
+          pdfUrl: ensureAbsolutePdfUrl(content.pdf),
+          primaryCategory: keywords?.[0] ?? null,
+        });
+      });
+    } catch (error) {
+      console.warn(`[openreview] Failed to fetch venue ${venue}`, error);
+    }
+  }
+
+  return results.filter((paper) => withinWindow(paper.publishedAt, since));
+}
+
 export default async function handler(req, res) {
   res.setHeader("Access-Control-Allow-Credentials", "true");
   res.setHeader("Access-Control-Allow-Origin", "*");
@@ -286,6 +364,9 @@ export default async function handler(req, res) {
   }
   if (source === "all" || source === "hugging_face") {
     tasks.push(fetchHuggingFacePapers({ limit, query, since }));
+  }
+  if (source === "all" || source === "openreview") {
+    tasks.push(fetchOpenReviewPapers({ limit, query, since }));
   }
 
   try {
