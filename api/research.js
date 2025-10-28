@@ -14,6 +14,9 @@ const OPENREVIEW_VENUES = [
   "ICLR 2025",
   "ICML 2024",
   "ACL 2024",
+  "EMNLP 2024",
+  "CVPR 2024",
+  "ICCV 2024",
 ];
 
 const parser = new XMLParser({
@@ -268,6 +271,8 @@ async function fetchOpenReviewPapers({ limit, since }) {
   const base = OPENREVIEW_API_BASE.replace(/\/$/, "");
   const perVenueLimit = Math.max(1, Math.ceil(limit / OPENREVIEW_VENUES.length));
   const results = [];
+  
+  console.log(`[openreview] Fetching papers from ${OPENREVIEW_VENUES.length} venues, limit per venue: ${perVenueLimit}`);
 
   for (const venue of OPENREVIEW_VENUES) {
     const params = new URLSearchParams({
@@ -293,6 +298,8 @@ async function fetchOpenReviewPapers({ limit, since }) {
 
       const payload = await response.json();
       const notes = Array.isArray(payload?.notes) ? payload.notes : Array.isArray(payload) ? payload : [];
+      
+      console.log(`[openreview] Fetched ${notes.length} papers from ${venue}`);
 
       notes.forEach((note) => {
         const content = note?.content || {};
@@ -321,10 +328,11 @@ async function fetchOpenReviewPapers({ limit, since }) {
         });
       });
     } catch (error) {
-      console.warn(`[openreview] Failed to fetch venue ${venue}`, error);
+      console.warn(`[openreview] Failed to fetch venue ${venue}`, error.message || error);
     }
   }
 
+  console.log(`[openreview] Total papers fetched: ${results.length}, after date filter: ${results.filter((paper) => withinWindow(paper.publishedAt, since)).length}`);
   return results.filter((paper) => withinWindow(paper.publishedAt, since));
 }
 
