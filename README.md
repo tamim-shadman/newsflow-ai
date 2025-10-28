@@ -135,6 +135,17 @@ GNEWS_API_KEY=your_gnews_api_key
 # NewsData (200/day): https://newsdata.io
 NEWSDATA_API_KEY=your_newsdata_api_key
 
+# ===== RESEARCH SOURCES =====
+# arXiv (no key required): https://info.arxiv.org/help/api/index.html
+ARXIV_API_BASE=https://export.arxiv.org/api/query
+
+# Semantic Scholar (free key optional for 5k/5min): https://api.semanticscholar.org/api-docs/
+SEMANTIC_SCHOLAR_API_BASE=https://api.semanticscholar.org/graph/v1
+SEMANTIC_SCHOLAR_API_KEY=your_semanticscholar_key
+
+# Hugging Face Daily Papers (no key required): https://huggingface.co/papers
+HUGGING_FACE_PAPERS_API=https://huggingface.co/api/daily_papers
+
 # ===== SPECIALIZED APIS (Optional but recommended) =====
 # Alpha Vantage (25/day): https://www.alphavantage.co
 ALPHA_VANTAGE_API_KEY=your_alphavantage_key

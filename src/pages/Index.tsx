@@ -40,6 +40,7 @@ import {
   Smartphone,
   ListChecks,
   Flag,
+  BookOpen,
 } from "lucide-react";
 import type { LucideIcon } from "lucide-react";
 import { Input } from "@/components/ui/input";
@@ -69,6 +70,7 @@ import {
 import { enhanceArticleWithLLM } from "@/services/llmService";
 import type {
   NewsArticle,
+  CategoryTheme,
   CategoryType,
   NewsAPIArticle,
 } from "@/types/news";
@@ -116,16 +118,32 @@ const Index = () => {
   const loadMoreRef = useRef<HTMLDivElement>(null);
   const [isLoadingMore, setIsLoadingMore] = useState(false);
 
-  const categories = [
-    { id: "all" as CategoryType, name: "All News", icon: Newspaper },
-    { id: "trending" as CategoryType, name: "Trending", icon: Flame },
-    { id: "technology" as CategoryType, name: "Technology", icon: Cpu },
-    { id: "sports" as CategoryType, name: "Sports", icon: Trophy },
-    { id: "business" as CategoryType, name: "Business", icon: Briefcase },
-    { id: "health" as CategoryType, name: "Health", icon: Heart },
-    { id: "entertainment" as CategoryType, name: "Entertainment", icon: Film },
-    { id: "world" as CategoryType, name: "World", icon: Globe },
-    { id: "bangladesh" as CategoryType, name: "Bangladesh", icon: Flag },
+  type NavCategory = {
+    id: CategoryType | "research";
+    name: string;
+    icon: LucideIcon;
+  };
+
+  const researchTheme: CategoryTheme = {
+    gradient: "from-sky-500 via-blue-500 to-cyan-500",
+    bg: "bg-gradient-to-br from-sky-900/30 via-blue-900/30 to-cyan-900/30",
+    accent: "from-sky-500 via-blue-500 to-cyan-500",
+    text: "text-sky-300",
+    glow: "shadow-sky-500/50",
+    ring: "ring-sky-500/40",
+  };
+
+  const categories: NavCategory[] = [
+    { id: "all", name: "All News", icon: Newspaper },
+    { id: "trending", name: "Trending", icon: Flame },
+    { id: "technology", name: "Technology", icon: Cpu },
+    { id: "sports", name: "Sports", icon: Trophy },
+    { id: "business", name: "Business", icon: Briefcase },
+    { id: "health", name: "Health", icon: Heart },
+    { id: "entertainment", name: "Entertainment", icon: Film },
+    { id: "world", name: "World", icon: Globe },
+    { id: "bangladesh", name: "Bangladesh", icon: Flag },
+    { id: "research", name: "Research Papers", icon: BookOpen },
   ];
 
   const toggleNotifications = useCallback(() => {
@@ -534,7 +552,12 @@ const Index = () => {
     return () => window.removeEventListener("mousemove", handleMouseMove);
   }, []);
 
-  const handleCategoryChange = (categoryId: CategoryType) => {
+  const handleCategoryChange = (categoryId: CategoryType | "research") => {
+    if (categoryId === "research") {
+      window.open("/research", "_blank", "noopener,noreferrer");
+      return;
+    }
+
     setIsTransitioning(true);
     setSearchQuery(""); // Clear search when changing category
     setTimeout(() => {
@@ -857,7 +880,10 @@ const Index = () => {
             {categories.map((cat) => {
               const Icon = cat.icon;
               const isActive = activeCategory === cat.id;
-              const catTheme = getCategoryTheme(cat.id);
+              const isResearch = cat.id === "research";
+              const catTheme = isResearch
+                ? researchTheme
+                : getCategoryTheme(cat.id as CategoryType);
               return (
                 <button
                   key={cat.id}

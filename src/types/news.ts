@@ -78,6 +78,24 @@ export interface CategoryTheme {
   ring: string;
 }
 
+export type ResearchSource = "arxiv" | "semantic_scholar" | "hugging_face";
+
+export interface ResearchPaper {
+  id: string;
+  title: string;
+  summary: string | null;
+  authors: string[];
+  publishedAt: string;
+  url: string;
+  source: ResearchSource;
+  sourceName: string;
+  venue?: string | null;
+  citations?: number | null;
+  tags?: string[];
+  pdfUrl?: string | null;
+  primaryCategory?: string | null;
+}
+
 // Live Scores interfaces
 export interface LiveScore {
   id: string;
