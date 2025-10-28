@@ -473,6 +473,7 @@ function findPublishedAt($, $anchor, $container) {
     }
   }
 
+  // Return current date as fallback (this will be filtered out if too old)
   return new Date().toISOString();
 }
 
@@ -644,14 +645,34 @@ function extractArticlesFromHTML(html, sourceUrl) {
 
   const unique = [];
   const seen = new Set();
+  const now = Date.now();
+  const oneDayAgo = now - (24 * 60 * 60 * 1000); // 24 hours in milliseconds
+  
   for (const article of combined) {
     if (!article || !article.url) continue;
     if (seen.has(article.url)) continue;
+    
+    // Validate article age - only include articles from last 24 hours
+    if (article.publishedAt) {
+      try {
+        const publishedTime = new Date(article.publishedAt).getTime();
+        if (!isNaN(publishedTime) && publishedTime < oneDayAgo) {
+          const ageHours = Math.round((now - publishedTime) / (60 * 60 * 1000));
+          console.log(`[scrape] Filtering old article (${ageHours}h): ${article.title?.substring(0, 50)}`);
+          continue; // Skip old articles
+        }
+      } catch (e) {
+        console.warn(`[scrape] Invalid date for article: ${article.title}`);
+        // Continue anyway - will use current date
+      }
+    }
+    
     seen.add(article.url);
     unique.push(article);
     if (unique.length >= 20) break;
   }
 
+  console.log(`[scrape] Extracted ${unique.length} articles (filtered from ${combined.length} by recency)`);
   return unique;
 }
 
@@ -678,7 +699,7 @@ export default async function handler(req, res) {
   res.setHeader("Cache-Control", "s-maxage=1800, stale-while-revalidate=3600");
 
   try {
-    console.log(`[scrape-site] Scraping: ${targetUrl}`);
+    console.log(`[scrape-site] 🌐 Starting scrape: ${targetUrl}`);
     
     const jinaUrl = `${JINA_READER_BASE}${encodeURIComponent(targetUrl)}`;
     const response = await fetch(jinaUrl, {
@@ -691,6 +712,7 @@ export default async function handler(req, res) {
     });
 
     if (!response.ok) {
+      console.error(`[scrape-site] ❌ Jina Reader error: ${response.status} ${response.statusText}`);
       throw new Error(`Jina Reader responded with ${response.status}`);
     }
 
@@ -698,12 +720,25 @@ export default async function handler(req, res) {
     const html = data?.data?.content || data?.data?.html || "";
     
     if (!html) {
+      console.error(`[scrape-site] ❌ No HTML content from Jina Reader`);
       throw new Error("No HTML content received from Jina Reader");
     }
     
+    console.log(`[scrape-site] ✅ HTML fetched (${html.length} chars)`);
+    
     const articles = extractArticlesFromHTML(html, targetUrl);
     
-    console.log(`[scrape-site] Extracted ${articles.length} articles from ${targetUrl}`);
+    console.log(`[scrape-site] ✅ Successfully extracted ${articles.length} recent articles from ${targetUrl}`);
+    
+    if (articles.length > 0) {
+      const firstArticle = articles[0];
+      console.log(`[scrape-site] 📰 Sample article:`, {
+        title: firstArticle.title?.substring(0, 60),
+        url: firstArticle.url?.substring(0, 80),
+        hasImage: !!firstArticle.urlToImage,
+        publishedAt: firstArticle.publishedAt
+      });
+    }
     
     res.status(200).json({
       success: true,
@@ -713,7 +748,7 @@ export default async function handler(req, res) {
     });
     
   } catch (error) {
-    console.error(`[scrape-site] Failed for ${targetUrl}:`, error.message);
+    console.error(`[scrape-site] ❌ Failed for ${targetUrl}:`, error.message);
     res.status(502).json({ 
       success: false,
       error: error.message,

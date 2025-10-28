@@ -245,8 +245,8 @@ const DAY_MS = 24 * HOUR_MS;
 
 const CACHE_TTL = 2 * HOUR_MS; // 2 hours (7200000 ms) for most categories
 const CACHE_TTL_RSS_HEAVY = 0.5 * HOUR_MS; // 30 minutes for RSS-heavy categories (Health)
-const MAX_ARTICLE_AGE = 48 * HOUR_MS; // 48 hours in milliseconds (increased from 24 hours)
-const MAX_ARTICLE_AGE_RSS_HEAVY = 72 * HOUR_MS; // 72 hours for RSS-heavy categories needing extended freshness window
+const MAX_ARTICLE_AGE = 24 * HOUR_MS; // 24 hours in milliseconds - only show articles from last day
+const MAX_ARTICLE_AGE_RSS_HEAVY = 48 * HOUR_MS; // 48 hours for RSS-heavy categories needing extended freshness window
 const RSS_PROXY_TIMEOUT = 12000;
 
 type ProviderTier = "unlimited" | "limited" | "fallback";
@@ -1002,28 +1002,63 @@ async function scrapeDirectSites(config: DirectBundleConfig, pageSize: number): 
   const articles: NewsAPIArticle[] = [];
   const targetPerSite = Math.ceil(pageSize / Math.min(config.sites.length, 10)); // Get ~2-4 articles per site
   
-  console.log(`[scrape-direct] Scraping ${config.category} from ${config.sites.length} sites (${targetPerSite} each)`);
+  console.log(`[scrape-direct] 🔍 Scraping ${config.category} from ${config.sites.length} sites (target: ${targetPerSite} per site)`);
   
   // Scrape sites in parallel (limit to first 10 sites for performance)
   const sitesToScrape = config.sites.slice(0, 10);
+  console.log(`[scrape-direct] 📋 Sites to scrape:`, sitesToScrape);
+  
   const scrapePromises = sitesToScrape.map(async (siteUrl) => {
     try {
-      const response = await axios.get('/api/scrape-site', {
+      console.log(`[scrape-direct] 🌐 Fetching: ${siteUrl}`);
+      
+      // Use absolute URL for API call
+      const apiUrl = typeof window !== 'undefined' 
+        ? `${window.location.origin}/api/scrape-site`
+        : '/api/scrape-site';
+      
+      const response = await axios.get(apiUrl, {
         params: { url: siteUrl },
-        timeout: 8000, // 8s timeout per site
+        timeout: 10000, // Increased to 10s timeout per site
+      });
+      
+      console.log(`[scrape-direct] 📦 Response for ${siteUrl}:`, {
+        success: response.data?.success,
+        articlesCount: response.data?.articles?.length || 0,
+        status: response.status
       });
       
       if (response.data?.success && response.data?.articles) {
-        const siteArticles = response.data.articles.slice(0, targetPerSite);
-        console.log(`[scrape-direct] ✓ ${siteUrl}: ${siteArticles.length} articles`);
+        // Filter out articles older than 24 hours
+        const now = Date.now();
+        const oneDayAgo = now - (24 * 60 * 60 * 1000);
+        
+        const recentArticles = response.data.articles.filter((article: NewsAPIArticle) => {
+          if (!article.publishedAt) return false;
+          try {
+            const publishedTime = new Date(article.publishedAt).getTime();
+            const isRecent = publishedTime >= oneDayAgo;
+            if (!isRecent) {
+              const ageHours = Math.round((now - publishedTime) / (60 * 60 * 1000));
+              console.log(`[scrape-direct] ⏰ Skipping old article (${ageHours}h old): ${article.title?.substring(0, 50)}...`);
+            }
+            return isRecent;
+          } catch (error) {
+            console.error(`[scrape-direct] ❌ Invalid date for article: ${article.title}`);
+            return false;
+          }
+        });
+        
+        const siteArticles = recentArticles.slice(0, targetPerSite);
+        console.log(`[scrape-direct] ✅ ${siteUrl}: ${siteArticles.length} recent articles (filtered from ${response.data.articles.length})`);
         return siteArticles;
       }
       
-      console.warn(`[scrape-direct] ✗ ${siteUrl}: No articles returned`);
+      console.warn(`[scrape-direct] ⚠️ ${siteUrl}: No articles returned`);
       return [];
     } catch (error) {
       const msg = error instanceof Error ? error.message : 'Unknown error';
-      console.error(`[scrape-direct] ✗ ${siteUrl}: ${msg}`);
+      console.error(`[scrape-direct] ❌ ${siteUrl} failed: ${msg}`);
       return [];
     }
   });
@@ -1033,10 +1068,12 @@ async function scrapeDirectSites(config: DirectBundleConfig, pageSize: number): 
   results.forEach((result, index) => {
     if (result.status === 'fulfilled' && result.value) {
       articles.push(...result.value);
+    } else if (result.status === 'rejected') {
+      console.error(`[scrape-direct] ❌ Promise rejected for site ${index}:`, result.reason);
     }
   });
   
-  console.log(`[scrape-direct] Total scraped: ${articles.length} articles from ${config.category} sites`);
+  console.log(`[scrape-direct] 📊 Total scraped: ${articles.length} recent articles from ${config.category} sites`);
   
   return articles;
 }
@@ -1366,8 +1403,13 @@ function getAgeWindowsForCategory(category?: CategoryType | "general"): number[]
   const normalizedCategory = category === "general" ? "all" : category;
   const windows = [baseLimit];
 
+  // For health, allow slightly older articles (48h max)
   if (normalizedCategory === "health") {
-    windows.push(7 * DAY_MS, 14 * DAY_MS, 21 * DAY_MS, 28 * DAY_MS);
+    windows.push(36 * HOUR_MS, 48 * HOUR_MS);
+  } else {
+    // For all other categories, be strict: 24h max
+    // Only extend to 36h if absolutely needed
+    windows.push(36 * HOUR_MS);
   }
 
   return Array.from(new Set(windows)).sort((a, b) => a - b);
