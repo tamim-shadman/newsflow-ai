@@ -1,6 +1,4 @@
-import cheerio from "cheerio";
-
-const { load } = cheerio;
+import { load } from "cheerio";
 
 const JINA_READER_BASE = "https://r.jina.ai/";
 const CATEGORY_KEYWORDS = new Set([

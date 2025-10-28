@@ -774,6 +774,18 @@ const HEALTH_DIRECT_SITES = [
   "https://www.nhs.uk/news/",
   "https://www.globalhealthnow.org",
   "https://www.wellandgood.com/health/",
+  "https://www.beckershospitalreview.com",
+  "https://www.healthcareitnews.com/news",
+  "https://www.fiercehealthcare.com",
+  "https://www.fiercebiotech.com",
+  "https://medicalxpress.com/medical-news/",
+  "https://www.medicaldaily.com",
+  "https://www.clinicaltrialsarena.com/news/",
+  "https://www.pharmaceutical-technology.com/news/",
+  "https://www.ajmc.com/news",
+  "https://www.medicaleconomics.com/latest-news",
+  "https://www.biospace.com/news",
+  "https://www.medtechdive.com",
 ];
 
 const ENTERTAINMENT_DIRECT_SITES = [
@@ -1540,7 +1552,7 @@ function getAgeWindowsForCategory(category?: CategoryType | "general"): number[]
 
   // For health, allow slightly older articles (48h max)
   if (normalizedCategory === "health") {
-    windows.push(36 * HOUR_MS, 48 * HOUR_MS);
+    windows.push(36 * HOUR_MS, 48 * HOUR_MS, 60 * HOUR_MS, 72 * HOUR_MS);
   } else {
     // For all other categories, be strict: 24h max
     // Only extend to 36h if absolutely needed
@@ -1592,6 +1604,14 @@ function filterRecentArticles(
 
   if (prepared.length === 0) {
     options.onWindowApplied?.(Math.round(initialWindow / HOUR_MS), 0, false);
+    if (articles.length > 0) {
+      const fallbackCount = Math.max(minCount, Math.min(articles.length, 24));
+      const fallbackLabel = category ?? "general";
+      console.warn(
+        `🕒 ${fallbackLabel}: No parsable publish dates found; falling back to ${fallbackCount} articles without strict recency checks`
+      );
+      return articles.slice(0, fallbackCount);
+    }
     return [];
   }
 
@@ -1612,6 +1632,32 @@ function filterRecentArticles(
       bestResult = filtered;
       bestWindow = windowMs;
       break;
+    }
+  }
+
+  if (bestResult.length < minCount && articles.length > bestResult.length) {
+    const bestKeys = new Set(
+      bestResult
+        .map(article => article?.url ?? article?.title ?? "")
+        .filter(Boolean)
+    );
+    const supplemental: NewsAPIArticle[] = [];
+    for (const article of articles) {
+      if (!article) continue;
+      const key = article.url ?? article.title ?? "";
+      if (!key || bestKeys.has(key)) continue;
+      supplemental.push(article);
+      bestKeys.add(key);
+      if (bestResult.length + supplemental.length >= minCount) {
+        break;
+      }
+    }
+    if (supplemental.length > 0) {
+      const label = category ?? "general";
+      console.log(
+        `📰 ${label}: Topping up freshness-filtered pool with ${supplemental.length} additional articles to reach target`
+      );
+      bestResult = [...bestResult, ...supplemental];
     }
   }
 
