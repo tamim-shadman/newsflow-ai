@@ -457,33 +457,51 @@ function mergeAndPrepareArticles(
     const keywordArticles = unique
       .filter(article => !isBangladeshLocalArticle(article))
       .filter(isBangladeshRelevantArticle);
+    const prioritized = [...localArticles, ...keywordArticles];
+    const prioritizedKeys = new Set(
+      prioritized.map(article => article.url ?? article.title ?? "")
+    );
+    const remainder = unique.filter(article => {
+      const key = article.url ?? article.title ?? "";
+      return key && !prioritizedKeys.has(key);
+    });
 
     if (localArticles.length >= desiredMinimum) {
       console.log(`🇧🇩 Prioritizing ${localArticles.length} Bangladesh-local articles (target ${desiredMinimum})`);
       curated = localArticles;
-    } else if (localArticles.length > 0 || keywordArticles.length > 0) {
+    } else if (prioritized.length > 0) {
       console.log(
         `🇧🇩 Combining ${localArticles.length} local and ${keywordArticles.length} Bangladesh-relevant fallback articles`
       );
-      curated = [...localArticles, ...keywordArticles];
+      const combined = [...prioritized, ...remainder];
+      curated = combined;
     } else {
       console.log("🇧🇩 No direct Bangladesh articles found; falling back to keyword-filtered pool");
-      curated = keywordArticles;
+      curated = remainder.length > 0 ? remainder : unique;
     }
   } else if (category === "health") {
     const localArticles = unique.filter(isHealthLocalArticle);
     const keywordArticles = unique
       .filter(article => !isHealthLocalArticle(article))
       .filter(isHealthRelevantArticle);
+    const prioritized = [...localArticles, ...keywordArticles];
+    const prioritizedKeys = new Set(
+      prioritized.map(article => article.url ?? article.title ?? "")
+    );
+    const remainder = unique.filter(article => {
+      const key = article.url ?? article.title ?? "";
+      return key && !prioritizedKeys.has(key);
+    });
 
     if (localArticles.length >= desiredMinimum) {
       console.log(`🩺 Prioritizing ${localArticles.length} health direct-source articles (target ${desiredMinimum})`);
       curated = localArticles;
-    } else if (localArticles.length > 0 || keywordArticles.length > 0) {
+    } else if (prioritized.length > 0) {
       console.log(
         `🩺 Combining ${localArticles.length} health direct-source and ${keywordArticles.length} keyword-matched articles`
       );
-      curated = [...localArticles, ...keywordArticles];
+      const combined = [...prioritized, ...remainder];
+      curated = combined;
     } else {
       console.log("🩺 No direct health articles matched; retaining original pool");
     }
