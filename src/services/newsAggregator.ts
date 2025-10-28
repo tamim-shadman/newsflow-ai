@@ -459,10 +459,15 @@ function mergeAndPrepareArticles(
 
   let curated = unique;
   if (category === "bangladesh") {
+    console.log(`🇧🇩 Bangladesh filtering: Starting with ${unique.length} unique articles`);
     const localArticles = unique.filter(isBangladeshLocalArticle);
+    console.log(`🇧🇩 Found ${localArticles.length} local Bangladesh articles`);
+    
     const keywordArticles = unique
       .filter(article => !isBangladeshLocalArticle(article))
       .filter(isBangladeshRelevantArticle);
+    console.log(`🇧🇩 Found ${keywordArticles.length} keyword-relevant articles`);
+    
     const prioritized = [...localArticles, ...keywordArticles];
     const prioritizedKeys = new Set(
       prioritized.map(article => article.url ?? article.title ?? "")
@@ -471,6 +476,7 @@ function mergeAndPrepareArticles(
       const key = article.url ?? article.title ?? "";
       return key && !prioritizedKeys.has(key);
     });
+    console.log(`🇧🇩 Remainder: ${remainder.length} articles`);
     const poolLimit = pageSize ?? unique.length;
 
     if (localArticles.length >= desiredMinimum) {
@@ -484,9 +490,11 @@ function mergeAndPrepareArticles(
       );
       curated = combinePriorityArticles(localArticles, keywordArticles, remainder, poolLimit);
     } else {
-      console.log("🇧🇩 No direct Bangladesh articles found; falling back to keyword-filtered pool");
-      curated = remainder.length > 0 ? remainder : unique;
+      console.log(`🇧🇩 No direct Bangladesh articles found; using all ${unique.length} unique articles without filtering`);
+      // Don't filter - use all articles we fetched
+      curated = unique;
     }
+    console.log(`🇧🇩 Final curated count: ${curated.length} articles`);
   } else if (category === "health") {
     const localArticles = unique.filter(isHealthLocalArticle);
     const keywordArticles = unique
@@ -1251,6 +1259,15 @@ async function scrapeDirectSites(config: DirectBundleConfig, pageSize: number): 
   }
 
   console.log(`[scrape-direct] 📊 Total scraped: ${articles.length} recent articles from ${config.category} sites`);
+  
+  // Log sample article URLs for debugging
+  if (articles.length > 0) {
+    console.log(`[scrape-direct] 📰 Sample articles (first 3):`);
+    articles.slice(0, 3).forEach((article, idx) => {
+      console.log(`  ${idx + 1}. ${article.title?.substring(0, 60)}... [${article.source?.name}]`);
+    });
+  }
+  
   return usesFullSiteList ? articles : articles.slice(0, pageSize);
 }
 
