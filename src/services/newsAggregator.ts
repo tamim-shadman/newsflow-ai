@@ -255,6 +255,12 @@ function getSmartFallbackImage(category: CategoryType | 'general', title: string
 
 const DEFAULT_FALLBACK_IMAGE = "https://images.unsplash.com/photo-1504711434969-e33886168f5c?w=800&h=600&fit=crop";
 
+function getSourceLogoUrl(article: NewsAPIArticle): string | null {
+  const host = extractHostname(article?.url);
+  if (!host) return null;
+  return `https://www.google.com/s2/favicons?domain=${host}&sz=256`;
+}
+
 // In-memory cache with TTL (2 hours)
 interface CacheEntry {
   data: NewsAPIArticle[];
@@ -465,16 +471,18 @@ function mergeAndPrepareArticles(
       const key = article.url ?? article.title ?? "";
       return key && !prioritizedKeys.has(key);
     });
+    const poolLimit = pageSize ?? unique.length;
 
     if (localArticles.length >= desiredMinimum) {
-      console.log(`🇧🇩 Prioritizing ${localArticles.length} Bangladesh-local articles (target ${desiredMinimum})`);
-      curated = localArticles;
+      console.log(
+        `🇧🇩 Prioritizing ${localArticles.length} Bangladesh-local articles (target ${desiredMinimum}) while keeping ${remainder.length + keywordArticles.length} supplemental stories for variety`
+      );
+      curated = combinePriorityArticles(localArticles, keywordArticles, remainder, poolLimit);
     } else if (prioritized.length > 0) {
       console.log(
         `🇧🇩 Combining ${localArticles.length} local and ${keywordArticles.length} Bangladesh-relevant fallback articles`
       );
-      const combined = [...prioritized, ...remainder];
-      curated = combined;
+      curated = combinePriorityArticles(localArticles, keywordArticles, remainder, poolLimit);
     } else {
       console.log("🇧🇩 No direct Bangladesh articles found; falling back to keyword-filtered pool");
       curated = remainder.length > 0 ? remainder : unique;
@@ -492,16 +500,18 @@ function mergeAndPrepareArticles(
       const key = article.url ?? article.title ?? "";
       return key && !prioritizedKeys.has(key);
     });
+    const poolLimit = pageSize ?? unique.length;
 
     if (localArticles.length >= desiredMinimum) {
-      console.log(`🩺 Prioritizing ${localArticles.length} health direct-source articles (target ${desiredMinimum})`);
-      curated = localArticles;
+      console.log(
+        `🩺 Prioritizing ${localArticles.length} health direct-source articles (target ${desiredMinimum}) while keeping ${remainder.length + keywordArticles.length} supplemental stories for variety`
+      );
+      curated = combinePriorityArticles(localArticles, keywordArticles, remainder, poolLimit);
     } else if (prioritized.length > 0) {
       console.log(
         `🩺 Combining ${localArticles.length} health direct-source and ${keywordArticles.length} keyword-matched articles`
       );
-      const combined = [...prioritized, ...remainder];
-      curated = combined;
+      curated = combinePriorityArticles(localArticles, keywordArticles, remainder, poolLimit);
     } else {
       console.log("🩺 No direct health articles matched; retaining original pool");
     }
@@ -518,9 +528,10 @@ function mergeAndPrepareArticles(
   // Uses both title and description for better variety
   return sorted.map(article => {
     if (!article.urlToImage || article.urlToImage === DEFAULT_FALLBACK_IMAGE) {
+      const logoUrl = getSourceLogoUrl(article);
       return {
         ...article,
-        urlToImage: getSmartFallbackImage(category, article.title, article.description)
+        urlToImage: logoUrl ?? getSmartFallbackImage(category, article.title, article.description)
       };
     }
     return article;
@@ -1060,6 +1071,27 @@ function isHealthLocalArticle(article: NewsAPIArticle): boolean {
 function isHealthRelevantArticle(article: NewsAPIArticle): boolean {
   const text = `${article.title ?? ""} ${article.description ?? ""} ${article.content ?? ""}`.toLowerCase();
   return HEALTH_KEYWORDS.some(keyword => text.includes(keyword));
+}
+
+function combinePriorityArticles(
+  primary: NewsAPIArticle[],
+  secondary: NewsAPIArticle[],
+  remainder: NewsAPIArticle[],
+  maxItems: number
+): NewsAPIArticle[] {
+  const target = Math.max(primary.length, Math.max(1, maxItems));
+  const result = [...primary];
+  const queue = [...secondary, ...remainder];
+
+  while (result.length < target && queue.length > 0) {
+    result.push(queue.shift()!);
+  }
+
+  if (queue.length > 0) {
+    result.push(...queue);
+  }
+
+  return result;
 }
 
 const GLOBAL_DIRECT_SITES = Array.from(

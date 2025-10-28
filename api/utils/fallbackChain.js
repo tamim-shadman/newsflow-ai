@@ -79,6 +79,12 @@ function getSmartFallbackImage(category, title) {
   return categoryImages[index];
 }
 
+function getSourceLogo(article) {
+  const host = getHostname(article?.url);
+  if (!host) return null;
+  return `https://www.google.com/s2/favicons?domain=${host}&sz=256`;
+}
+
 const rssParser = new Parser({
   timeout: 5000, // Reduced from 10000 to prevent Vercel timeout
   headers: {
@@ -637,9 +643,10 @@ export class FallbackChain {
     // Apply smart fallback images to articles without images
     const withSmartImages = blended.map(article => {
       if (!article.urlToImage || article.urlToImage === DEFAULT_IMAGE) {
+        const logoUrl = getSourceLogo(article);
         return {
           ...article,
-          urlToImage: getSmartFallbackImage(this.category, article.title)
+          urlToImage: logoUrl || getSmartFallbackImage(this.category, article.title)
         };
       }
       return article;
