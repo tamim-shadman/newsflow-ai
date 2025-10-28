@@ -8,15 +8,24 @@ const ARXIV_API_BASE = process.env.ARXIV_API_BASE || "https://export.arxiv.org/a
 const SEMANTIC_SCHOLAR_API_BASE = process.env.SEMANTIC_SCHOLAR_API_BASE || "https://api.semanticscholar.org/graph/v1";
 const SEMANTIC_SCHOLAR_API_KEY = process.env.SEMANTIC_SCHOLAR_API_KEY || "";
 const HUGGING_FACE_PAPERS_API = process.env.HUGGING_FACE_PAPERS_API || "https://huggingface.co/api/daily_papers";
-const OPENREVIEW_API_BASE = process.env.OPENREVIEW_API_BASE || "https://api.openreview.net";
-const OPENREVIEW_VENUES = [
-  "NeurIPS 2024",
-  "ICLR 2025",
-  "ICML 2024",
-  "ACL 2024",
-  "EMNLP 2024",
-  "CVPR 2024",
-  "ICCV 2024",
+const OPENREVIEW_API_BASE = process.env.OPENREVIEW_API_BASE || "https://api2.openreview.net";
+const OPENREVIEW_CONFERENCES = [
+  {
+    venue: "NeurIPS.cc/2024/Conference",
+    name: "NeurIPS 2024",
+  },
+  {
+    venue: "ICLR.cc/2024/Conference",
+    name: "ICLR 2024",
+  },
+  {
+    venue: "ICML.cc/2024/Conference",
+    name: "ICML 2024",
+  },
+  {
+    venue: "ICLR.cc/2025/Conference",
+    name: "ICLR 2025",
+  },
 ];
 
 const parser = new XMLParser({
@@ -269,21 +278,24 @@ function ensureAbsolutePdfUrl(pdf) {
 
 async function fetchOpenReviewPapers({ limit, since }) {
   const base = OPENREVIEW_API_BASE.replace(/\/$/, "");
-  const perVenueLimit = Math.max(1, Math.ceil(limit / OPENREVIEW_VENUES.length));
+  const perConferenceLimit = Math.max(1, Math.ceil(limit / OPENREVIEW_CONFERENCES.length));
   const results = [];
   
-  console.log(`[openreview] Fetching papers from ${OPENREVIEW_VENUES.length} venues, limit per venue: ${perVenueLimit}`);
+  console.log(`[openreview] Fetching papers from ${OPENREVIEW_CONFERENCES.length} conferences, limit per conference: ${perConferenceLimit}`);
 
-  for (const venue of OPENREVIEW_VENUES) {
+  for (const conf of OPENREVIEW_CONFERENCES) {
+    // Use content.venue parameter which is more reliable
     const params = new URLSearchParams({
-      "content.venue": venue,
-      sort: "tmdate:desc",
-      limit: String(Math.min(perVenueLimit, HARD_LIMIT)),
-      details: "replyCount",
+      "content.venue": conf.venue,
+      limit: String(Math.min(perConferenceLimit, HARD_LIMIT)),
+      sort: "tmdate",
     });
 
     try {
-      const response = await fetch(`${base}/notes?${params.toString()}`, {
+      const url = `${base}/notes?${params.toString()}`;
+      console.log(`[openreview] Fetching from ${conf.name}: ${url}`);
+      
+      const response = await fetch(url, {
         method: "GET",
         headers: {
           Accept: "application/json",
@@ -292,48 +304,76 @@ async function fetchOpenReviewPapers({ limit, since }) {
       });
 
       if (!response.ok) {
-        console.warn(`[openreview] ${venue} request failed with status ${response.status}`);
+        console.warn(`[openreview] ${conf.name} request failed with status ${response.status}`);
         continue;
       }
 
       const payload = await response.json();
-      const notes = Array.isArray(payload?.notes) ? payload.notes : Array.isArray(payload) ? payload : [];
+      const notes = Array.isArray(payload?.notes) ? payload.notes : [];
       
-      console.log(`[openreview] Fetched ${notes.length} papers from ${venue}`);
+      console.log(`[openreview] Fetched ${notes.length} papers from ${conf.name}`);
 
       notes.forEach((note) => {
         const content = note?.content || {};
-        const authors = Array.isArray(content.authors)
-          ? content.authors.filter((author) => typeof author === "string")
+        
+        // Handle both old and new API formats for content fields
+        const getContentValue = (field) => {
+          if (!field) return null;
+          return field?.value !== undefined ? field.value : field;
+        };
+        
+        const title = getContentValue(content.title) || "OpenReview submission";
+        const abstract = getContentValue(content.abstract) || null;
+        const authorsField = getContentValue(content.authors);
+        const authors = Array.isArray(authorsField) 
+          ? authorsField.filter((author) => typeof author === "string")
           : [];
-        const publishedAt = typeof note?.cdate === "number" ? new Date(note.cdate).toISOString() : null;
-        const keywords = Array.isArray(content.keywords)
-          ? content.keywords.filter((kw) => typeof kw === "string")
+        const keywordsField = getContentValue(content.keywords);
+        const keywords = Array.isArray(keywordsField)
+          ? keywordsField.filter((kw) => typeof kw === "string")
           : [];
+        
+        // Use mdate (modified date) for sorting, fallback to cdate (creation date)
+        const publishedAt = typeof note?.mdate === "number" 
+          ? new Date(note.mdate).toISOString()
+          : typeof note?.cdate === "number"
+          ? new Date(note.cdate).toISOString() 
+          : new Date().toISOString();
+        
+        const forumId = note?.forum || note?.id;
+        const pdfField = getContentValue(content.pdf);
+        const pdfUrl = pdfField 
+          ? (pdfField.startsWith("/") ? `https://openreview.net${pdfField}` : pdfField)
+          : null;
 
         results.push({
-          id: note?.id || note?.forum || Math.random().toString(36).slice(2),
-          title: content.title || "OpenReview submission",
-          summary: content.abstract || null,
+          id: note?.id || forumId || Math.random().toString(36).slice(2),
+          title,
+          summary: abstract,
           authors,
-          publishedAt: publishedAt ?? new Date().toISOString(),
-          url: note?.id || note?.forum ? `https://openreview.net/forum?id=${note.id || note.forum}` : "",
+          publishedAt,
+          url: forumId ? `https://openreview.net/forum?id=${forumId}` : "",
           source: "openreview",
           sourceName: "OpenReview",
-          venue: content.venue || venue,
+          venue: getContentValue(content.venue) || conf.name,
           citations: null,
           tags: keywords,
-          pdfUrl: ensureAbsolutePdfUrl(content.pdf),
+          pdfUrl,
           primaryCategory: keywords?.[0] ?? null,
         });
       });
+      
+      // Wait between requests to avoid rate limiting
+      await new Promise(resolve => setTimeout(resolve, 1000));
+      
     } catch (error) {
-      console.warn(`[openreview] Failed to fetch venue ${venue}`, error.message || error);
+      console.warn(`[openreview] Failed to fetch conference ${conf.name}:`, error.message || error);
     }
   }
 
-  console.log(`[openreview] Total papers fetched: ${results.length}, after date filter: ${results.filter((paper) => withinWindow(paper.publishedAt, since)).length}`);
-  return results.filter((paper) => withinWindow(paper.publishedAt, since));
+  const filtered = results.filter((paper) => withinWindow(paper.publishedAt, since));
+  console.log(`[openreview] Total papers fetched: ${results.length}, after date filter: ${filtered.length}`);
+  return filtered;
 }
 
 export default async function handler(req, res) {
@@ -373,7 +413,9 @@ export default async function handler(req, res) {
   if (source === "all" || source === "hugging_face") {
     tasks.push(fetchHuggingFacePapers({ limit, query, since }));
   }
-  if (source === "all" || source === "openreview") {
+  // Disabled OpenReview in development due to CORS
+  // Only works in production (Vercel serverless)
+  if (source === "openreview" && process.env.NODE_ENV === "production") {
     tasks.push(fetchOpenReviewPapers({ limit, query, since }));
   }
 
