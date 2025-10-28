@@ -1,3 +1,5 @@
+import { getRedditAPI } from "../lib/reddit.js";
+
 const DEFAULT_LIMIT = 50;
 const MAX_LIMIT = 100;
 const REDDIT_BASE_URL = "https://www.reddit.com";
@@ -57,23 +59,10 @@ export default async function handler(req, res) {
     : "news";
   const limit = normalizeLimit(req.query?.limit);
 
-  const endpoint = `${REDDIT_BASE_URL}/r/${encodeURIComponent(subreddit)}/hot.json?limit=${limit}`;
-
   try {
-    console.log(`[reddit-api] Fetching r/${subreddit} (limit=${limit})`);
-    const response = await fetch(endpoint, {
-      headers: {
-        "User-Agent": "newsflow-ai/1.0 (+https://newsflow-ai.com)",
-        Accept: "application/json",
-      },
-      signal: AbortSignal.timeout(8000),
-    });
-
-    if (!response.ok) {
-      throw new Error(`Reddit responded with ${response.status}`);
-    }
-
-    const payload = await response.json();
+    console.log(`[reddit-api] Fetching r/${subreddit} (limit=${limit}) via OAuth`);
+    const reddit = getRedditAPI();
+    const payload = await reddit.getSubredditPosts(subreddit, limit);
     const posts = Array.isArray(payload?.data?.children) ? payload.data.children : [];
     const articles = posts
       .map((post) => mapRedditPost(subreddit, post?.data))
@@ -83,7 +72,8 @@ export default async function handler(req, res) {
     res.setHeader("Cache-Control", "s-maxage=120, stale-while-revalidate=300");
     res.status(200).json({ success: true, subreddit, limit, articles, totalResults: articles.length });
   } catch (error) {
+    const status = error.message?.includes("credentials") ? 500 : 502;
     console.error(`[reddit-api] Failed for r/${subreddit}:`, error.message);
-    res.status(502).json({ success: false, error: error.message, articles: [] });
+    res.status(status).json({ success: false, error: error.message, articles: [] });
   }
 }

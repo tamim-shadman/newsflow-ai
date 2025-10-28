@@ -25,6 +25,28 @@ const OMDB_API_KEY = import.meta.env.OMDB_API_KEY;
 const RSS_PROXY_URL = import.meta.env.VITE_RSS_PROXY_URL || "/api/rss-proxy";
 const REDDIT_PROXY_URL = import.meta.env.VITE_REDDIT_PROXY_URL || "/api/reddit";
 
+const DIRECT_FETCH_TIMEOUT_MS = 12000;
+
+const DIRECT_CATEGORY_PAGE_SIZE_TARGETS: Partial<Record<CategoryType, number>> = {
+  all: 120,
+  technology: 80,
+  sports: 80,
+  business: 80,
+  health: 60,
+  entertainment: 80,
+  world: 80,
+  bangladesh: 60,
+};
+
+const COLLECTOR_MULTIPLIERS: Partial<Record<CategoryType, number>> = {
+  all: 2,
+  health: 2.2,
+  bangladesh: 1.6,
+};
+
+const DEFAULT_COLLECTOR_MULTIPLIER = 1.8;
+const COLLECTOR_MIN_BUFFER = 20;
+
 // Smart fallback image system - returns different images based on category and article hash
 // Expanded with 20 images per category for maximum variety
 const FALLBACK_IMAGES = {
@@ -432,15 +454,21 @@ function mergeAndPrepareArticles(
   let curated = unique;
   if (category === "bangladesh") {
     const localArticles = unique.filter(isBangladeshLocalArticle);
+    const keywordArticles = unique
+      .filter(article => !isBangladeshLocalArticle(article))
+      .filter(isBangladeshRelevantArticle);
+
     if (localArticles.length >= desiredMinimum) {
       console.log(`🇧🇩 Prioritizing ${localArticles.length} Bangladesh-local articles (target ${desiredMinimum})`);
       curated = localArticles;
-    } else if (localArticles.length > 0) {
-      const fallbackArticles = unique.filter(article => !isBangladeshLocalArticle(article));
+    } else if (localArticles.length > 0 || keywordArticles.length > 0) {
       console.log(
-        `🇧🇩 Using ${localArticles.length} Bangladesh-local articles with ${fallbackArticles.length} fallback stories (need ${desiredMinimum})`
+        `🇧🇩 Combining ${localArticles.length} local and ${keywordArticles.length} Bangladesh-relevant fallback articles`
       );
-      curated = [...localArticles, ...fallbackArticles];
+      curated = [...localArticles, ...keywordArticles];
+    } else {
+      console.log("🇧🇩 No direct Bangladesh articles found; falling back to keyword-filtered pool");
+      curated = keywordArticles;
     }
   }
   
@@ -886,6 +914,27 @@ const BANGLADESH_ALLOWED_HOSTS = new Set(
     .filter((host): host is string => Boolean(host))
 );
 
+const BANGLADESH_KEYWORDS = [
+  "bangladesh",
+  "dhaka",
+  "chittagong",
+  "chattogram",
+  "khulna",
+  "rajshahi",
+  "sylhet",
+  "mymensingh",
+  "rangpur",
+  "barisal",
+  "barishal",
+  "cox's bazar",
+  "coxsbazar",
+  "narayanganj",
+  "gazipur",
+  "bangladeshi",
+  "padma bridge",
+  "sonargaon",
+];
+
 const BANGLADESH_LOCAL_SOURCE_IDS = new Set<string>([
   "unb-news",
   "unb-news-direct",
@@ -913,6 +962,11 @@ function isBangladeshLocalArticle(article: NewsAPIArticle): boolean {
   }
 
   return false;
+}
+
+function isBangladeshRelevantArticle(article: NewsAPIArticle): boolean {
+  const text = `${article.title ?? ""} ${article.description ?? ""} ${article.content ?? ""}`.toLowerCase();
+  return BANGLADESH_KEYWORDS.some(keyword => text.includes(keyword));
 }
 
 const GLOBAL_DIRECT_SITES = Array.from(
@@ -1000,82 +1054,80 @@ const DIRECT_BUNDLE_PROVIDER_KEYS: Partial<Record<CategoryType, string>> = {
 
 async function scrapeDirectSites(config: DirectBundleConfig, pageSize: number): Promise<NewsAPIArticle[]> {
   const articles: NewsAPIArticle[] = [];
-  const targetPerSite = Math.ceil(pageSize / Math.min(config.sites.length, 10)); // Get ~2-4 articles per site
-  
-  console.log(`[scrape-direct] 🔍 Scraping ${config.category} from ${config.sites.length} sites (target: ${targetPerSite} per site)`);
-  
-  // Scrape sites in parallel (limit to first 10 sites for performance)
-  const sitesToScrape = config.sites.slice(0, 10);
-  console.log(`[scrape-direct] 📋 Sites to scrape:`, sitesToScrape);
-  
-  const scrapePromises = sitesToScrape.map(async (siteUrl) => {
+  const isAllCategory = config.category === "all";
+  const isBangladeshCategory = config.category === "bangladesh";
+  const maxSites = isAllCategory ? 8 : isBangladeshCategory ? 12 : 6;
+  const chunkSize = isAllCategory ? 4 : isBangladeshCategory ? 4 : 3;
+  const perSiteTimeout = isAllCategory ? 7000 : isBangladeshCategory ? 8000 : 6000;
+  const targetPerSite = Math.max(
+    1,
+    Math.ceil(pageSize / Math.min(config.sites.length, maxSites))
+  );
+
+  const sitesToScrape = config.sites.slice(0, Math.min(maxSites, config.sites.length));
+  console.log(`[scrape-direct] 🔍 Scraping ${config.category} from ${sitesToScrape.length} sites (target: ${targetPerSite} per site)`);
+
+  const fetchSite = async (siteUrl: string): Promise<NewsAPIArticle[]> => {
     try {
       console.log(`[scrape-direct] 🌐 Fetching: ${siteUrl}`);
-      
-      // Use absolute URL for API call
-      const apiUrl = typeof window !== 'undefined' 
+      const apiUrl = typeof window !== "undefined"
         ? `${window.location.origin}/api/scrape-site`
-        : '/api/scrape-site';
-      
+        : "/api/scrape-site";
+
       const response = await axios.get(apiUrl, {
         params: { url: siteUrl },
-        timeout: 10000, // Increased to 10s timeout per site
+        timeout: perSiteTimeout,
       });
-      
-      console.log(`[scrape-direct] 📦 Response for ${siteUrl}:`, {
-        success: response.data?.success,
-        articlesCount: response.data?.articles?.length || 0,
-        status: response.status
-      });
-      
-      if (response.data?.success && response.data?.articles) {
-        // Filter out articles older than 24 hours
-        const now = Date.now();
-        const oneDayAgo = now - (24 * 60 * 60 * 1000);
-        
-        const recentArticles = response.data.articles.filter((article: NewsAPIArticle) => {
-          if (!article.publishedAt) return false;
-          try {
-            const publishedTime = new Date(article.publishedAt).getTime();
-            const isRecent = publishedTime >= oneDayAgo;
-            if (!isRecent) {
-              const ageHours = Math.round((now - publishedTime) / (60 * 60 * 1000));
-              console.log(`[scrape-direct] ⏰ Skipping old article (${ageHours}h old): ${article.title?.substring(0, 50)}...`);
-            }
-            return isRecent;
-          } catch (error) {
-            console.error(`[scrape-direct] ❌ Invalid date for article: ${article.title}`);
-            return false;
-          }
-        });
-        
-        const siteArticles = recentArticles.slice(0, targetPerSite);
-        console.log(`[scrape-direct] ✅ ${siteUrl}: ${siteArticles.length} recent articles (filtered from ${response.data.articles.length})`);
-        return siteArticles;
+
+      if (!response.data?.success || !Array.isArray(response.data?.articles)) {
+        console.warn(`[scrape-direct] ⚠️ ${siteUrl}: No articles returned`);
+        return [];
       }
-      
-      console.warn(`[scrape-direct] ⚠️ ${siteUrl}: No articles returned`);
-      return [];
+
+      const now = Date.now();
+      const oneDayAgo = now - (24 * 60 * 60 * 1000);
+      const recentArticles = response.data.articles.filter((article: NewsAPIArticle) => {
+        if (!article?.publishedAt) return false;
+        const publishedTime = new Date(article.publishedAt).getTime();
+        if (Number.isNaN(publishedTime)) return false;
+        const isRecent = publishedTime >= oneDayAgo;
+        if (!isRecent) {
+          const ageHours = Math.round((now - publishedTime) / (60 * 60 * 1000));
+          console.log(`[scrape-direct] ⏰ Skipping old article (${ageHours}h): ${article.title?.substring(0, 60) ?? "(untitled)"}`);
+        }
+        return isRecent;
+      });
+
+      const siteArticles = recentArticles.slice(0, targetPerSite);
+      console.log(`[scrape-direct] ✅ ${siteUrl}: ${siteArticles.length} recent articles`);
+      return siteArticles;
     } catch (error) {
-      const msg = error instanceof Error ? error.message : 'Unknown error';
+      const msg = error instanceof Error ? error.message : "Unknown error";
       console.error(`[scrape-direct] ❌ ${siteUrl} failed: ${msg}`);
       return [];
     }
-  });
-  
-  const results = await Promise.allSettled(scrapePromises);
-  
-  results.forEach((result, index) => {
-    if (result.status === 'fulfilled' && result.value) {
-      articles.push(...result.value);
-    } else if (result.status === 'rejected') {
-      console.error(`[scrape-direct] ❌ Promise rejected for site ${index}:`, result.reason);
+  };
+
+  for (let index = 0; index < sitesToScrape.length; index += chunkSize) {
+    const chunk = sitesToScrape.slice(index, index + chunkSize);
+    const results = await Promise.allSettled(chunk.map(fetchSite));
+
+    results.forEach((result, resultIndex) => {
+      if (result.status === "fulfilled") {
+        articles.push(...result.value);
+      } else {
+        console.error(`[scrape-direct] ❌ Promise rejected for ${chunk[resultIndex]}:`, result.reason);
+      }
+    });
+
+    if (articles.length >= pageSize) {
+      console.log(`[scrape-direct] 🎯 Reached ${articles.length} articles, stopping early`);
+      break;
     }
-  });
-  
+  }
+
   console.log(`[scrape-direct] 📊 Total scraped: ${articles.length} recent articles from ${config.category} sites`);
-  
-  return articles;
+  return articles.slice(0, pageSize);
 }
 
 function getDirectBundleProviders(category: CategoryType): ProviderConfig[] {
@@ -1566,11 +1618,9 @@ export async function fetchNewsByCategory(
     "all",
   ];
   const directPrioritySet = new Set(directPriorityCategories);
-  const minimumTarget = category === "all"
-    ? Math.max(pageSize, 200)
-    : directPrioritySet.has(category)
-      ? Math.max(pageSize, 100)
-      : pageSize;
+  const minimumTarget = directPrioritySet.has(category)
+    ? Math.max(pageSize, DIRECT_CATEGORY_PAGE_SIZE_TARGETS[category] ?? 80)
+    : pageSize;
   const effectivePageSize = minimumTarget;
   const cacheKey = `news_${category}_${effectivePageSize}`;
   
@@ -1589,7 +1639,7 @@ export async function fetchNewsByCategory(
       try {
         const fetchPromise = fetchNewsDirectly(category, effectivePageSize);
         const timeoutPromise = new Promise<NewsAPIArticle[]>((_, reject) =>
-          setTimeout(() => reject(new Error("Direct bundle fetch timeout")), 8000)
+          setTimeout(() => reject(new Error("Direct bundle fetch timeout")), DIRECT_FETCH_TIMEOUT_MS)
         );
 
         const fetchedArticles = await Promise.race([fetchPromise, timeoutPromise]);
@@ -1674,7 +1724,7 @@ export async function fetchNewsByCategory(
       try {
         const fetchPromise = fetchNewsDirectly(category, effectivePageSize);
         const timeoutPromise = new Promise<NewsAPIArticle[]>((_, reject) =>
-          setTimeout(() => reject(new Error('Direct fetch timeout')), 8000)
+          setTimeout(() => reject(new Error('Direct fetch timeout')), DIRECT_FETCH_TIMEOUT_MS)
         );
         
         const fetchedArticles = await Promise.race([fetchPromise, timeoutPromise]);
@@ -2062,15 +2112,19 @@ async function collectFromProviders(
     return;
   }
 
-  // RSS-heavy categories (Health) need more RSS sources for better coverage
-  const isRSSHeavy = category === 'health';
-  const minSources = isRSSHeavy ? 5 : 3; // Collect from more RSS sources for Health
-  const targetArticles = isRSSHeavy ? pageSize * 4 : pageSize * 3; // Collect even more articles from RSS
+  const isRSSHeavy = category === "health";
+  const minSources = isRSSHeavy ? 5 : 3;
+  const multiplier = COLLECTOR_MULTIPLIERS[category] ?? DEFAULT_COLLECTOR_MULTIPLIER;
+  const targetArticles = Math.max(pageSize + COLLECTOR_MIN_BUFFER, Math.ceil(pageSize * multiplier));
   let sourcesCollected = 0;
 
   console.log(`📰 ${category}: Collecting from ${providers.length} providers (min sources: ${minSources}, target: ${targetArticles} articles)`);
 
   for (const provider of providers) {
+    if (accumulator.length >= targetArticles && sourcesCollected >= minSources) {
+      console.log(`  🎯 Target reached: ${accumulator.length} articles from ${sourcesCollected} sources`);
+      break;
+    }
     // For RSS-heavy categories, prioritize unlimited (RSS) sources more aggressively
     if (isRSSHeavy && provider.tier === "unlimited") {
       // Always collect from RSS feeds, don't stop early
@@ -2088,13 +2142,6 @@ async function collectFromProviders(
         console.log(`  ❌ ${provider.name}: Failed`);
       }
     } else {
-      // Standard behavior for other categories
-      // Stop only if we have enough articles AND variety
-      if (accumulator.length >= targetArticles && sourcesCollected >= minSources) {
-        console.log(`  🎯 Target reached: ${accumulator.length} articles from ${sourcesCollected} sources`);
-        break;
-      }
-
       try {
         const articles = await tryAPI(provider.name, normalizedCategory, pageSize, provider.options);
         if (articles.length > 0) {

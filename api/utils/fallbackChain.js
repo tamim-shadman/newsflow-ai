@@ -304,7 +304,7 @@ const BBC_FEED_MAP = {
   world: "https://feeds.bbci.co.uk/news/world/rss.xml",
   trending: "https://feeds.bbci.co.uk/news/rss.xml",
   all: "https://feeds.bbci.co.uk/news/rss.xml",
-  bangladesh: "https://feeds.bbci.co.uk/news/world/asia/india/rss.xml",
+  bangladesh: "https://feeds.bbci.co.uk/news/world/asia/bangladesh/rss.xml",
 };
 
 const GUARDIAN_RSS_MAP = {
@@ -314,6 +314,150 @@ const GUARDIAN_RSS_MAP = {
 const ALJAZEERA_RSS = "https://www.aljazeera.com/xml/rss/all.xml";
 const YAHOO_FINANCE_RSS = "https://finance.yahoo.com/news/rssindex";
 const REUTERS_WORLD_RSS = "https://feeds.reuters.com/reuters/worldNews";
+
+const BANGLADESH_FALLBACK_IMAGE = "https://images.unsplash.com/photo-1586829135343-132950070391?w=800&h=600&fit=crop";
+const BANGLADESH_MAX_ARTICLE_AGE_MS = 36 * 60 * 60 * 1000;
+const BANGLADESH_KEYWORDS = [
+  "bangladesh",
+  "bangladeshi",
+  "dhaka",
+  "chittagong",
+  "chattogram",
+  "khulna",
+  "rajshahi",
+  "sylhet",
+  "mymensingh",
+  "rangpur",
+  "barisal",
+  "barishal",
+  "cox's bazar",
+  "coxsbazar",
+  "narayanganj",
+  "gazipur",
+  "padma bridge",
+  "sonargaon",
+];
+
+const BANGLADESH_HOST_PATTERNS = [
+  ".bd",
+  "bangladesh",
+  "bdnews24",
+  "prothomalo",
+  "thedailystar",
+  "dhakatribune",
+  "tbsnews",
+  "unb",
+  "banglanews24",
+  "dhakapost",
+  "financialexpress",
+  "theindependentbd",
+  "daily-sun",
+  "ittefaq",
+  "kalerkantho",
+  "jugantor",
+  "samakal",
+  "risingbd",
+  "somoynews",
+  "channel24bd",
+  "jamuna.tv",
+  "bssnews",
+];
+
+function getHostname(url) {
+  try {
+    return new URL(url).hostname.toLowerCase();
+  } catch (error) {
+    return "";
+  }
+}
+
+function isBangladeshHost(hostname) {
+  if (!hostname) return false;
+  return BANGLADESH_HOST_PATTERNS.some((pattern) => hostname.includes(pattern));
+}
+
+function isBangladeshRelevant(article) {
+  if (!article) return false;
+  if (article.url) {
+    const host = getHostname(article.url);
+    if (isBangladeshHost(host)) {
+      return true;
+    }
+  }
+
+  const text = `${article.title || ""} ${article.description || ""} ${article.content || ""}`.toLowerCase();
+  return BANGLADESH_KEYWORDS.some((keyword) => text.includes(keyword));
+}
+
+function resolveRssImage(item, fallback = DEFAULT_IMAGE) {
+  const candidates = [];
+
+  const enclosure = item?.enclosure;
+  if (typeof enclosure === "string") {
+    candidates.push(enclosure);
+  } else if (enclosure && typeof enclosure === "object") {
+    candidates.push(enclosure.url, enclosure.link);
+  }
+
+  const mediaContent = item?.["media:content"];
+  if (Array.isArray(mediaContent)) {
+    mediaContent.forEach((entry) => {
+      if (entry && typeof entry.url === "string") {
+        candidates.push(entry.url);
+      }
+    });
+  } else if (mediaContent && typeof mediaContent === "object" && typeof mediaContent.url === "string") {
+    candidates.push(mediaContent.url);
+  }
+
+  const mediaThumbnail = item?.["media:thumbnail"];
+  if (Array.isArray(mediaThumbnail)) {
+    mediaThumbnail.forEach((entry) => {
+      if (entry && typeof entry.url === "string") {
+        candidates.push(entry.url);
+      }
+    });
+  } else if (mediaThumbnail && typeof mediaThumbnail === "object" && typeof mediaThumbnail.url === "string") {
+    candidates.push(mediaThumbnail.url);
+  }
+
+  candidates.push(item?.image, item?.thumbnail);
+
+  const image = candidates.find((url) => typeof url === "string" && url.startsWith("http"));
+  return image || fallback;
+}
+
+function normalizeBangladeshFeed(items, { sourceId, sourceName }) {
+  const now = Date.now();
+
+  return items
+    .map((item) => {
+      const publishedAt = item?.isoDate || item?.pubDate;
+      if (publishedAt) {
+        const publishedTime = new Date(publishedAt).getTime();
+        if (!Number.isNaN(publishedTime) && now - publishedTime > BANGLADESH_MAX_ARTICLE_AGE_MS) {
+          return null;
+        }
+      }
+
+      const description = item?.contentSnippet || item?.summary || item?.description || item?.title;
+      const content = item?.["content:encoded"] || item?.content || description;
+      const urlToImage = resolveRssImage(item, BANGLADESH_FALLBACK_IMAGE);
+
+      return createArticle({
+        sourceId,
+        sourceName,
+        author: item?.creator || item?.author || sourceName,
+        title: item?.title,
+        description,
+        url: item?.link,
+        urlToImage,
+        publishedAt,
+        content,
+      });
+    })
+    .filter(Boolean);
+}
 
 export class FallbackChain {
   constructor({ category = "general", pageSize = 20, language = "en" } = {}) {
@@ -410,7 +554,14 @@ export class FallbackChain {
         ...defaults,
       ],
       bangladesh: [
-        { name: "bbc", tier: "unlimited", handler: () => this.fetchBBC() },
+        { name: "bangladesh-unb", tier: "unlimited", handler: () => this.fetchBangladeshUNB() },
+        { name: "bangladesh-prothomalo", tier: "unlimited", handler: () => this.fetchBangladeshProthomAlo() },
+        { name: "bangladesh-financial-express", tier: "unlimited", handler: () => this.fetchBangladeshFinancialExpress() },
+        { name: "bangladesh-new-age", tier: "unlimited", handler: () => this.fetchBangladeshNewAge() },
+        { name: "bangladesh-banglanews24", tier: "unlimited", handler: () => this.fetchBangladeshBanglaNews24() },
+        { name: "bangladesh-dhaka-tribune", tier: "unlimited", handler: () => this.fetchBangladeshDhakaTribune() },
+        { name: "google-news-bd", tier: "unlimited", handler: () => this.fetchBangladeshGoogleNews() },
+        { name: "bbc-bangladesh", tier: "unlimited", handler: () => this.fetchBBC() },
         { name: "guardian-bd", tier: "unlimited", handler: () => this.fetchGuardianRSS() },
         { name: "aljazeera", tier: "unlimited", handler: () => this.fetchAlJazeera() },
         { name: "newsdata-bd", tier: "limited", handler: () => this.fetchNewsDataBangladesh() },
@@ -466,7 +617,21 @@ export class FallbackChain {
       throw err;
     }
 
-    const deduped = dedupeArticles(collected, this.pageSize * 2);
+    let deduped = dedupeArticles(collected, this.pageSize * 2);
+
+    if (this.category === "bangladesh") {
+      const relevant = deduped.filter(isBangladeshRelevant);
+      if (relevant.length > 0) {
+        relevant.sort((a, b) => {
+          const aLocal = isBangladeshHost(getHostname(a?.url));
+          const bLocal = isBangladeshHost(getHostname(b?.url));
+          if (aLocal === bLocal) return 0;
+          return aLocal ? -1 : 1;
+        });
+        deduped = relevant;
+      }
+    }
+
     const blended = blendArticlesBySource(deduped, this.pageSize);
 
     // Apply smart fallback images to articles without images
@@ -1428,6 +1593,62 @@ export class FallbackChain {
         content: item.content,
       })
     );
+  }
+
+  async fetchBangladeshUNB() {
+    const items = await fetchRssFeed("https://unb.com.bd/feed");
+    return normalizeBangladeshFeed(items, {
+      sourceId: "unb-news",
+      sourceName: "UNB News",
+    });
+  }
+
+  async fetchBangladeshProthomAlo() {
+    const items = await fetchRssFeed("https://en.prothomalo.com/feed");
+    return normalizeBangladeshFeed(items, {
+      sourceId: "prothomalo-en",
+      sourceName: "Prothom Alo",
+    });
+  }
+
+  async fetchBangladeshFinancialExpress() {
+    const items = await fetchRssFeed("https://thefinancialexpress.com.bd/rss");
+    return normalizeBangladeshFeed(items, {
+      sourceId: "financial-express-bd",
+      sourceName: "Financial Express Bangladesh",
+    });
+  }
+
+  async fetchBangladeshNewAge() {
+    const items = await fetchRssFeed("https://www.newagebd.net/rss.php");
+    return normalizeBangladeshFeed(items, {
+      sourceId: "newage-bd",
+      sourceName: "New Age Bangladesh",
+    });
+  }
+
+  async fetchBangladeshBanglaNews24() {
+    const items = await fetchRssFeed("https://www.banglanews24.com/rss.xml");
+    return normalizeBangladeshFeed(items, {
+      sourceId: "banglanews24",
+      sourceName: "Banglanews24",
+    });
+  }
+
+  async fetchBangladeshDhakaTribune() {
+    const items = await fetchRssFeed("https://www.dhakatribune.com/feed");
+    return normalizeBangladeshFeed(items, {
+      sourceId: "dhakatribune",
+      sourceName: "Dhaka Tribune",
+    });
+  }
+
+  async fetchBangladeshGoogleNews() {
+    const items = await fetchRssFeed("https://news.google.com/rss/search?q=bangladesh&hl=en-BD&gl=BD&ceid=BD:en");
+    return normalizeBangladeshFeed(items, {
+      sourceId: "google-news-bd",
+      sourceName: "Google News Bangladesh",
+    });
   }
 
   async fetchReuters() {
