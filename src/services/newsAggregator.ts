@@ -275,6 +275,8 @@ const CACHE_TTL = 2 * HOUR_MS; // 2 hours (7200000 ms) for most categories
 const CACHE_TTL_RSS_HEAVY = 0.5 * HOUR_MS; // 30 minutes for RSS-heavy categories (Health)
 const MAX_ARTICLE_AGE = 24 * HOUR_MS; // 24 hours in milliseconds - only show articles from last day
 const MAX_ARTICLE_AGE_RSS_HEAVY = 48 * HOUR_MS; // 48 hours for RSS-heavy categories needing extended freshness window
+const MAX_ARTICLE_AGE_BANGLADESH = 96 * HOUR_MS; // 96 hours (4 days) for Bangladesh category - extended window for better coverage
+const MAX_ARTICLE_AGE_HEALTH_EXTENDED = 96 * HOUR_MS; // 96 hours (4 days) for Health category - extended window for better coverage
 const RSS_PROXY_TIMEOUT = 12000;
 
 type ProviderTier = "unlimited" | "limited" | "fallback";
@@ -1183,7 +1185,8 @@ async function scrapeDirectSites(config: DirectBundleConfig, pageSize: number): 
   );
 
   const sitesToScrape = config.sites.slice(0, Math.min(maxSites, config.sites.length));
-  console.log(`[scrape-direct] 🔍 Scraping ${config.category} from ${sitesToScrape.length} sites (target: ${targetPerSite} per site)`);
+  const daysWindow = (config.category === "bangladesh" || config.category === "health") ? 4 : 1;
+  console.log(`[scrape-direct] 🔍 Scraping ${config.category} from ${sitesToScrape.length} sites (target: ${targetPerSite} per site, time window: ${daysWindow} days)`);
 
   const fetchSite = async (siteUrl: string): Promise<NewsAPIArticle[]> => {
     try {
@@ -1193,7 +1196,10 @@ async function scrapeDirectSites(config: DirectBundleConfig, pageSize: number): 
         : "/api/scrape-site";
 
       const response = await axios.get(apiUrl, {
-        params: { url: siteUrl },
+        params: { 
+          url: siteUrl,
+          category: config.category // Pass category to enable smart scraping strategy
+        },
         timeout: perSiteTimeout,
       });
 
@@ -1213,7 +1219,10 @@ async function scrapeDirectSites(config: DirectBundleConfig, pageSize: number): 
       }
 
       const now = Date.now();
-      const oneDayAgo = now - (24 * 60 * 60 * 1000);
+      // Use 4-day window for Bangladesh and Health categories
+      const daysWindow = (config.category === "bangladesh" || config.category === "health") ? 4 : 1;
+      const maxAge = now - (daysWindow * 24 * 60 * 60 * 1000);
+      
       const recentArticles = response.data.articles.filter((article: NewsAPIArticle) => {
         // If no publishedAt, assume it's recent (current date)
         if (!article?.publishedAt) return true;
@@ -1222,10 +1231,11 @@ async function scrapeDirectSites(config: DirectBundleConfig, pageSize: number): 
         // If invalid date, assume it's recent
         if (Number.isNaN(publishedTime)) return true;
         
-        const isRecent = publishedTime >= oneDayAgo;
+        const isRecent = publishedTime >= maxAge;
         if (!isRecent) {
           const ageHours = Math.round((now - publishedTime) / (60 * 60 * 1000));
-          console.log(`[scrape-direct] ⏰ Skipping old article (${ageHours}h): ${article.title?.substring(0, 60) ?? "(untitled)"}`);
+          const ageDays = Math.floor(ageHours / 24);
+          console.log(`[scrape-direct] ⏰ Skipping old article (${ageDays}d ${ageHours % 24}h): ${article.title?.substring(0, 60) ?? "(untitled)"}`);
         }
         return isRecent;
       });
@@ -1567,9 +1577,17 @@ const CATEGORY_PROVIDER_MAP: Record<CategoryType, ProviderConfig[]> = {
 
 function getAgeLimitForCategory(category?: CategoryType | "general"): number {
   const normalizedCategory = category === "general" ? "all" : category;
-  return normalizedCategory === "health"
-    ? MAX_ARTICLE_AGE_RSS_HEAVY
-    : MAX_ARTICLE_AGE;
+  
+  // Extended 4-day window for Bangladesh and Health categories
+  if (normalizedCategory === "bangladesh") {
+    return MAX_ARTICLE_AGE_BANGLADESH;
+  }
+  if (normalizedCategory === "health") {
+    return MAX_ARTICLE_AGE_HEALTH_EXTENDED;
+  }
+  
+  // Standard 24-hour window for other categories
+  return MAX_ARTICLE_AGE;
 }
 
 function getFreshnessWindowHours(category?: CategoryType | "general"): number {
@@ -1596,12 +1614,16 @@ function getAgeWindowsForCategory(category?: CategoryType | "general"): number[]
   const normalizedCategory = category === "general" ? "all" : category;
   const windows = [baseLimit];
 
-  // For health, allow slightly older articles (48h max)
-  if (normalizedCategory === "health") {
-    windows.push(36 * HOUR_MS, 48 * HOUR_MS, 60 * HOUR_MS, 72 * HOUR_MS);
-  } else {
-    // For all other categories, be strict: 24h max
-    // Only extend to 36h if absolutely needed
+  // For Bangladesh, allow up to 4 days with relaxation steps
+  if (normalizedCategory === "bangladesh") {
+    windows.push(72 * HOUR_MS, 84 * HOUR_MS, 96 * HOUR_MS, 108 * HOUR_MS);
+  }
+  // For health, allow up to 4 days with relaxation steps
+  else if (normalizedCategory === "health") {
+    windows.push(72 * HOUR_MS, 84 * HOUR_MS, 96 * HOUR_MS, 108 * HOUR_MS);
+  }
+  // For all other categories, be strict: 24h max, only extend to 36h if absolutely needed
+  else {
     windows.push(36 * HOUR_MS);
   }
 

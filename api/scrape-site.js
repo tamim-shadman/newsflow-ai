@@ -678,6 +678,8 @@ export default async function handler(req, res) {
   }
 
   const targetUrl = normalizeUrl(req.query?.url);
+  const category = req.query?.category || "";
+  
   if (!targetUrl) {
     res.status(400).json({ error: "URL required" });
     return;
@@ -687,83 +689,157 @@ export default async function handler(req, res) {
   res.setHeader("Cache-Control", "s-maxage=1800, stale-while-revalidate=3600");
 
   try {
-    console.log(`[scrape-site] 🌐 Starting scrape: ${targetUrl}`);
+    console.log(`[scrape-site] 🌐 Starting scrape: ${targetUrl} (category: ${category})`);
     
     let html = "";
     let fetchMethod = "unknown";
     
-    // Strategy 1: Try Jina Reader first (fastest, cleanest)
-    try {
-      const jinaUrl = `${JINA_READER_BASE}${encodeURIComponent(targetUrl)}`;
-      const response = await fetch(jinaUrl, {
-        headers: {
-          Accept: "application/json",
-          "X-Return-Format": "html",
-          "X-With-Images-Summary": "true",
-        },
-        signal: AbortSignal.timeout(10000), // 10s timeout
-      });
-
-      if (response.ok) {
-        const data = await response.json();
-        html = data?.data?.content || data?.data?.html || "";
-        fetchMethod = "jina";
-        console.log(`[scrape-site] ✅ Jina Reader fetched HTML (${html.length} chars)`);
-      } else if (response.status === 422) {
-        console.log(`[scrape-site] ⚠️ Jina Reader blocked (422), trying fallbacks...`);
-        throw new Error("Jina blocked");
-      } else {
-        console.warn(`[scrape-site] ⚠️ Jina Reader error ${response.status}, trying fallbacks...`);
-        throw new Error("Jina error");
-      }
-    } catch (jinaError) {
-      // Strategy 2: Mercury Parser (medium speed, good for article extraction)
-      console.log(`[scrape-site] � Attempting Mercury Parser for ${targetUrl}`);
+    // For Bangladesh category: Prioritize direct browser scraping for better reliability with .bd sites
+    if (category === "bangladesh") {
+      console.log(`[scrape-site] 🇧🇩 Bangladesh category - using Browser → Jina → Mercury strategy`);
       
-      // Add delay before Mercury fetch (500ms)
-      await new Promise(resolve => setTimeout(resolve, 500));
-      
+      // Strategy 1 (Bangladesh): Direct browser scraping first
       try {
-        const mercuryResult = await Mercury.parse(targetUrl, {
-          headers: {
-            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36'
-          }
-        });
-        
-        if (mercuryResult && mercuryResult.content) {
-          // Mercury returns clean article content, wrap it to extract
-          html = `
-            <html>
-              <body>
-                <article>
-                  <h1>${mercuryResult.title || ''}</h1>
-                  <time datetime="${mercuryResult.date_published || new Date().toISOString()}">${mercuryResult.date_published || ''}</time>
-                  ${mercuryResult.lead_image_url ? `<img src="${mercuryResult.lead_image_url}" alt="${mercuryResult.title || ''}" />` : ''}
-                  <div>${mercuryResult.content}</div>
-                </article>
-              </body>
-            </html>
-          `;
-          fetchMethod = "mercury";
-          console.log(`[scrape-site] ✅ Mercury Parser successful (${html.length} chars)`);
-        } else {
-          console.warn(`[scrape-site] ⚠️ Mercury Parser returned no content, trying browser...`);
-          throw new Error("Mercury returned no content");
-        }
-      } catch (mercuryError) {
-        // Strategy 3: Headless browser (slowest but most reliable)
         console.log(`[scrape-site] 🤖 Attempting browser fetch for ${targetUrl}`);
+        html = await fetchWithBrowser(targetUrl, 15000);
+        fetchMethod = "browser";
+        console.log(`[scrape-site] ✅ Browser fetch successful (${html.length} chars)`);
+      } catch (browserError) {
+        console.warn(`[scrape-site] ⚠️ Browser fetch failed, trying Jina...`);
         
-        // Add delay before browser fetch (1000ms)
-        await new Promise(resolve => setTimeout(resolve, 1000));
+        // Strategy 2 (Bangladesh): Jina Reader fallback
+        try {
+          await new Promise(resolve => setTimeout(resolve, 500));
+          const jinaUrl = `${JINA_READER_BASE}${encodeURIComponent(targetUrl)}`;
+          const response = await fetch(jinaUrl, {
+            headers: {
+              Accept: "application/json",
+              "X-Return-Format": "html",
+              "X-With-Images-Summary": "true",
+            },
+            signal: AbortSignal.timeout(10000),
+          });
+
+          if (response.ok) {
+            const data = await response.json();
+            html = data?.data?.content || data?.data?.html || "";
+            fetchMethod = "jina";
+            console.log(`[scrape-site] ✅ Jina Reader fetched HTML (${html.length} chars)`);
+          } else {
+            throw new Error(`Jina error ${response.status}`);
+          }
+        } catch (jinaError) {
+          // Strategy 3 (Bangladesh): Mercury Parser final fallback
+          console.log(`[scrape-site] 📖 Attempting Mercury Parser for ${targetUrl}`);
+          await new Promise(resolve => setTimeout(resolve, 500));
+          
+          try {
+            const mercuryResult = await Mercury.parse(targetUrl, {
+              headers: {
+                'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36'
+              }
+            });
+            
+            if (mercuryResult && mercuryResult.content) {
+              html = `
+                <html>
+                  <body>
+                    <article>
+                      <h1>${mercuryResult.title || ''}</h1>
+                      <time datetime="${mercuryResult.date_published || new Date().toISOString()}">${mercuryResult.date_published || ''}</time>
+                      ${mercuryResult.lead_image_url ? `<img src="${mercuryResult.lead_image_url}" alt="${mercuryResult.title || ''}" />` : ''}
+                      <div>${mercuryResult.content}</div>
+                    </article>
+                  </body>
+                </html>
+              `;
+              fetchMethod = "mercury";
+              console.log(`[scrape-site] ✅ Mercury Parser successful (${html.length} chars)`);
+            } else {
+              throw new Error("Mercury returned no content");
+            }
+          } catch (mercuryError) {
+            console.error(`[scrape-site] ❌ All Bangladesh fetch strategies failed:`, mercuryError.message);
+            throw new Error(`All strategies failed: ${mercuryError.message}`);
+          }
+        }
+      }
+    } else {
+      // For other categories: Use original Jina → Mercury → Browser strategy
+      
+      // Strategy 1: Try Jina Reader first (fastest, cleanest)
+      try {
+        const jinaUrl = `${JINA_READER_BASE}${encodeURIComponent(targetUrl)}`;
+        const response = await fetch(jinaUrl, {
+          headers: {
+            Accept: "application/json",
+            "X-Return-Format": "html",
+            "X-With-Images-Summary": "true",
+          },
+          signal: AbortSignal.timeout(10000), // 10s timeout
+        });
+
+        if (response.ok) {
+          const data = await response.json();
+          html = data?.data?.content || data?.data?.html || "";
+          fetchMethod = "jina";
+          console.log(`[scrape-site] ✅ Jina Reader fetched HTML (${html.length} chars)`);
+        } else if (response.status === 422) {
+          console.log(`[scrape-site] ⚠️ Jina Reader blocked (422), trying fallbacks...`);
+          throw new Error("Jina blocked");
+        } else {
+          console.warn(`[scrape-site] ⚠️ Jina Reader error ${response.status}, trying fallbacks...`);
+          throw new Error("Jina error");
+        }
+      } catch (jinaError) {
+        // Strategy 2: Mercury Parser (medium speed, good for article extraction)
+        console.log(`[scrape-site] 📖 Attempting Mercury Parser for ${targetUrl}`);
+        
+        // Add delay before Mercury fetch (500ms)
+        await new Promise(resolve => setTimeout(resolve, 500));
         
         try {
-          html = await fetchWithBrowser(targetUrl, 15000);
-          fetchMethod = "browser";
-          console.log(`[scrape-site] ✅ Browser fetch successful (${html.length} chars)`);
-        } catch (browserError) {
-          console.error(`[scrape-site] ❌ All fetch strategies failed:`, browserError.message);
-          throw new Error(`All strategies failed: ${browserError.message}`);
+          const mercuryResult = await Mercury.parse(targetUrl, {
+            headers: {
+              'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36'
+            }
+          });
+          
+          if (mercuryResult && mercuryResult.content) {
+            // Mercury returns clean article content, wrap it to extract
+            html = `
+              <html>
+                <body>
+                  <article>
+                    <h1>${mercuryResult.title || ''}</h1>
+                    <time datetime="${mercuryResult.date_published || new Date().toISOString()}">${mercuryResult.date_published || ''}</time>
+                    ${mercuryResult.lead_image_url ? `<img src="${mercuryResult.lead_image_url}" alt="${mercuryResult.title || ''}" />` : ''}
+                    <div>${mercuryResult.content}</div>
+                  </article>
+                </body>
+              </html>
+            `;
+            fetchMethod = "mercury";
+            console.log(`[scrape-site] ✅ Mercury Parser successful (${html.length} chars)`);
+          } else {
+            console.warn(`[scrape-site] ⚠️ Mercury Parser returned no content, trying browser...`);
+            throw new Error("Mercury returned no content");
+          }
+        } catch (mercuryError) {
+          // Strategy 3: Headless browser (slowest but most reliable)
+          console.log(`[scrape-site] 🤖 Attempting browser fetch for ${targetUrl}`);
+          
+          // Add delay before browser fetch (1000ms)
+          await new Promise(resolve => setTimeout(resolve, 1000));
+          
+          try {
+            html = await fetchWithBrowser(targetUrl, 15000);
+            fetchMethod = "browser";
+            console.log(`[scrape-site] ✅ Browser fetch successful (${html.length} chars)`);
+          } catch (browserError) {
+            console.error(`[scrape-site] ❌ All fetch strategies failed:`, browserError.message);
+            throw new Error(`All strategies failed: ${browserError.message}`);
+          }
         }
       }
     }
