@@ -1,6 +1,5 @@
 import { load } from "cheerio";
 import { fetchWithBrowser } from "./utils/browserScraper.js";
-import Mercury from "@postlight/parser";
 
 const JINA_READER_BASE = "https://r.jina.ai/";
 const CATEGORY_KEYWORDS = new Set([
@@ -645,26 +644,15 @@ function extractArticlesFromHTML(html, sourceUrl) {
 
   const unique = [];
   const seen = new Set();
-  const now = Date.now();
-  const oneDayAgo = now - (24 * 60 * 60 * 1000); // 24 hours in milliseconds
   
   for (const article of combined) {
     if (!article || !article.url) continue;
     if (seen.has(article.url)) continue;
     
-    // Validate article age - only include articles from last 24 hours
-    if (article.publishedAt) {
-      try {
-        const publishedTime = new Date(article.publishedAt).getTime();
-        if (!isNaN(publishedTime) && publishedTime < oneDayAgo) {
-          const ageHours = Math.round((now - publishedTime) / (60 * 60 * 1000));
-          console.log(`[scrape] Filtering old article (${ageHours}h): ${article.title?.substring(0, 50)}`);
-          continue; // Skip old articles
-        }
-      } catch (e) {
-        console.warn(`[scrape] Invalid date for article: ${article.title}`);
-        // Continue anyway - will use current date
-      }
+    // Just ensure we have a valid publishedAt - don't filter by age here
+    // (let the aggregator handle age filtering)
+    if (!article.publishedAt) {
+      article.publishedAt = new Date().toISOString();
     }
     
     seen.add(article.url);
@@ -672,7 +660,7 @@ function extractArticlesFromHTML(html, sourceUrl) {
     if (unique.length >= 20) break;
   }
 
-  console.log(`[scrape] Extracted ${unique.length} articles (filtered from ${combined.length} by recency)`);
+  console.log(`[scrape] Extracted ${unique.length} unique articles from ${combined.length} total`);
   return unique;
 }
 

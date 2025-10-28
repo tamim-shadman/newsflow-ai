@@ -1207,9 +1207,13 @@ async function scrapeDirectSites(config: DirectBundleConfig, pageSize: number): 
       const now = Date.now();
       const oneDayAgo = now - (24 * 60 * 60 * 1000);
       const recentArticles = response.data.articles.filter((article: NewsAPIArticle) => {
-        if (!article?.publishedAt) return false;
+        // If no publishedAt, assume it's recent (current date)
+        if (!article?.publishedAt) return true;
+        
         const publishedTime = new Date(article.publishedAt).getTime();
-        if (Number.isNaN(publishedTime)) return false;
+        // If invalid date, assume it's recent
+        if (Number.isNaN(publishedTime)) return true;
+        
         const isRecent = publishedTime >= oneDayAgo;
         if (!isRecent) {
           const ageHours = Math.round((now - publishedTime) / (60 * 60 * 1000));
