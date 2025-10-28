@@ -134,11 +134,29 @@ export async function cheerioScrape(url, options = {}) {
           if (articles.length >= maxArticles) return false;
 
           const $elem = $(elem);
-          const articleTitle = $elem.find(titleSel).first().text().trim();
-          const $link = $elem.find(linkSel).first();
+          
+          // Find title element first
+          const $titleElem = $elem.find(titleSel).first();
+          const articleTitle = $titleElem.text().trim();
+          
+          if (!articleTitle) return;
+          
+          // Try to find the link associated with the title
+          // Priority: 1) Link wrapping title, 2) Link inside title, 3) Closest link to title, 4) First link in container
+          let $link = $titleElem.closest('a[href]');
+          if (!$link.length) {
+            $link = $titleElem.find('a[href]').first();
+          }
+          if (!$link.length) {
+            $link = $titleElem.parent().find('a[href]').first();
+          }
+          if (!$link.length) {
+            $link = $elem.find(linkSel).first();
+          }
+          
           let articleUrl = $link.attr('href');
-
-          if (!articleTitle || !articleUrl) return;
+          
+          if (!articleUrl) return;
 
           // Make URL absolute
           if (articleUrl && !articleUrl.startsWith('http')) {
@@ -151,17 +169,37 @@ export async function cheerioScrape(url, options = {}) {
 
           // Skip duplicates
           if (seenUrls.has(articleUrl)) return;
-          seenUrls.add(articleUrl);
 
           // Skip navigation/category links (common patterns)
+          const urlPath = articleUrl.toLowerCase();
           if (
             articleUrl.includes('/category/') ||
             articleUrl.includes('/tag/') ||
+            articleUrl.includes('/tags/') ||
             articleUrl.includes('/author/') ||
-            articleUrl.endsWith('/') && articleUrl.split('/').filter(Boolean).length <= 3
+            articleUrl.includes('/page/') ||
+            urlPath.endsWith('/bangladesh') ||
+            urlPath.endsWith('/news') ||
+            urlPath.endsWith('/latest') ||
+            urlPath.endsWith('/asia') ||
+            urlPath.endsWith('/world') ||
+            (articleUrl.endsWith('/') && articleUrl.split('/').filter(Boolean).length <= 3)
           ) {
             return;
           }
+          
+          // Additional check: Article URLs typically have more path segments or date patterns
+          const pathSegments = articleUrl.split('/').filter(Boolean);
+          const hasDatePattern = /\d{4}\/\d{2}\/\d{2}|\d{8}/.test(articleUrl);
+          const hasArticleIndicator = /article|story|news|post|read/.test(urlPath);
+          const isLikelyArticle = pathSegments.length >= 4 || hasDatePattern || hasArticleIndicator;
+          
+          if (!isLikelyArticle) {
+            console.log(`[cheerioScraper] ⚠️ Skipping likely category URL: ${articleUrl}`);
+            return;
+          }
+
+          seenUrls.add(articleUrl);
 
           // Extract excerpt
           let excerpt = $elem.find('p, .excerpt, .description, [class*="excerpt"], [class*="summary"]')
