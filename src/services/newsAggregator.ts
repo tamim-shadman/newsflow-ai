@@ -906,56 +906,39 @@ const WORLD_DIRECT_SITES = [
 ];
 
 const BANGLADESH_DIRECT_SITES = [
-  "https://www.thedailystar.net",
+  // Primary reliable sources
   "https://en.prothomalo.com",
+  "https://www.thedailystar.net",
   "https://bdnews24.com",
   "https://www.dhakatribune.com",
-  "https://www.newagebd.net",
+  "https://thefinancialexpress.com.bd",
   "https://www.tbsnews.net",
   "https://unb.com.bd",
+  "https://www.newagebd.net",
   "https://www.dhakapost.com",
-  "https://thefinancialexpress.com.bd",
   "https://www.theindependentbd.com",
   "https://www.daily-sun.com",
   "https://www.observerbd.com",
-  "https://www.thedailystar.net/business",
-  "https://www.thedailystar.net/news/bangladesh",
+  // Category pages from primary sources
   "https://en.prothomalo.com/bangladesh",
+  "https://www.thedailystar.net/news/bangladesh",
+  "https://www.thedailystar.net/business",
   "https://bdnews24.com/bangladesh",
   "https://www.dhakatribune.com/bangladesh",
+  "https://thefinancialexpress.com.bd/national",
   "https://www.tbsnews.net/bangladesh",
   "https://unb.com.bd/category/Bangladesh",
-  "https://thefinancialexpress.com.bd/national",
   "https://www.theindependentbd.com/category/bangladesh",
+  // Additional reliable BD news sources
   "https://www.jagonews24.com",
   "https://www.banglanews24.com",
   "https://www.risingbd.com",
-  "https://www.bd-pratidin.com",
-  "https://www.ittefaq.com.bd",
-  "https://www.kalerkantho.com",
-  "https://www.jugantor.com",
-  "https://www.samakal.com",
-  "https://www.ntvbd.com",
-  "https://www.somoynews.tv",
-  "https://www.channel24bd.tv",
-  "https://www.jamuna.tv",
-  "https://www.independent-bd.com",
-  "https://www.bss.gov.bd",
-  "https://www.dhakatimes24.com",
-  "https://bangladeshpost.net",
-  "https://www.bd24live.com",
-  "https://www.banglabarta.com",
-  "https://www.banglanewspaper.com",
-  "https://www.bangladeshjournal.com",
-  "https://www.ournewsbd.com",
   "https://www.dhakatimes.com",
   "https://www.banglatribune.com",
-  "https://www.sarabangla.net",
-  "https://www.shimanews.com",
-  "https://www.ekattor.tv",
-  "https://www.71tv.com",
-  "https://www.dbcnews.tv",
-  "https://www.rtv.com.bd",
+  "https://www.independent-bd.com",
+  "https://www.bss.gov.bd",
+  "https://bangladeshpost.net",
+  "https://www.bangladeshjournal.com",
 ];
 
 const BANGLADESH_EXTRA_HOSTS = [
@@ -1209,6 +1192,16 @@ async function scrapeDirectSites(config: DirectBundleConfig, pageSize: number): 
       if (!response.data?.success || !Array.isArray(response.data?.articles)) {
         console.warn(`[scrape-direct] ⚠️ ${siteUrl}: No articles returned`);
         return [];
+      }
+      
+      // Log which fetch method was used
+      const fetchMethod = response.data?._fetchMethod || 'unknown';
+      if (fetchMethod === 'browser') {
+        console.log(`[scrape-direct] 🤖 ${siteUrl}: Used browser fallback`);
+      } else if (fetchMethod === 'mercury') {
+        console.log(`[scrape-direct] � ${siteUrl}: Used Mercury Parser`);
+      } else if (fetchMethod === 'jina') {
+        console.log(`[scrape-direct] ⚡ ${siteUrl}: Used Jina Reader`);
       }
 
       const now = Date.now();
