@@ -470,6 +470,23 @@ function mergeAndPrepareArticles(
       console.log("🇧🇩 No direct Bangladesh articles found; falling back to keyword-filtered pool");
       curated = keywordArticles;
     }
+  } else if (category === "health") {
+    const localArticles = unique.filter(isHealthLocalArticle);
+    const keywordArticles = unique
+      .filter(article => !isHealthLocalArticle(article))
+      .filter(isHealthRelevantArticle);
+
+    if (localArticles.length >= desiredMinimum) {
+      console.log(`🩺 Prioritizing ${localArticles.length} health direct-source articles (target ${desiredMinimum})`);
+      curated = localArticles;
+    } else if (localArticles.length > 0 || keywordArticles.length > 0) {
+      console.log(
+        `🩺 Combining ${localArticles.length} health direct-source and ${keywordArticles.length} keyword-matched articles`
+      );
+      curated = [...localArticles, ...keywordArticles];
+    } else {
+      console.log("🩺 No direct health articles matched; retaining original pool");
+    }
   }
   
   // Sort by publish date - LATEST FIRST (newest to oldest)
@@ -950,6 +967,42 @@ const BANGLADESH_LOCAL_SOURCE_IDS = new Set<string>([
   "bss-news",
 ]);
 
+const HEALTH_ALLOWED_HOSTS = new Set(
+  HEALTH_DIRECT_SITES
+    .map(extractHostname)
+    .filter((host): host is string => Boolean(host))
+);
+
+const HEALTH_KEYWORDS = [
+  "health",
+  "medical",
+  "medicine",
+  "hospital",
+  "clinic",
+  "doctor",
+  "nurse",
+  "patient",
+  "vaccine",
+  "disease",
+  "pandemic",
+  "outbreak",
+  "wellness",
+  "fitness",
+  "mental health",
+  "therapy",
+  "pharma",
+  "pharmaceutical",
+  "biotech",
+  "public health",
+  "epidemic",
+  "immunization",
+  "covid",
+  "virus",
+  "cardiology",
+  "oncology",
+  "surgery",
+];
+
 function isBangladeshLocalArticle(article: NewsAPIArticle): boolean {
   const host = extractHostname(article?.url);
   if (host && BANGLADESH_ALLOWED_HOSTS.has(host)) {
@@ -967,6 +1020,16 @@ function isBangladeshLocalArticle(article: NewsAPIArticle): boolean {
 function isBangladeshRelevantArticle(article: NewsAPIArticle): boolean {
   const text = `${article.title ?? ""} ${article.description ?? ""} ${article.content ?? ""}`.toLowerCase();
   return BANGLADESH_KEYWORDS.some(keyword => text.includes(keyword));
+}
+
+function isHealthLocalArticle(article: NewsAPIArticle): boolean {
+  const host = extractHostname(article?.url);
+  return Boolean(host && HEALTH_ALLOWED_HOSTS.has(host));
+}
+
+function isHealthRelevantArticle(article: NewsAPIArticle): boolean {
+  const text = `${article.title ?? ""} ${article.description ?? ""} ${article.content ?? ""}`.toLowerCase();
+  return HEALTH_KEYWORDS.some(keyword => text.includes(keyword));
 }
 
 const GLOBAL_DIRECT_SITES = Array.from(
@@ -1056,9 +1119,11 @@ async function scrapeDirectSites(config: DirectBundleConfig, pageSize: number): 
   const articles: NewsAPIArticle[] = [];
   const isAllCategory = config.category === "all";
   const isBangladeshCategory = config.category === "bangladesh";
-  const maxSites = isAllCategory ? 8 : isBangladeshCategory ? 12 : 6;
-  const chunkSize = isAllCategory ? 4 : isBangladeshCategory ? 4 : 3;
-  const perSiteTimeout = isAllCategory ? 7000 : isBangladeshCategory ? 8000 : 6000;
+  const isHealthCategory = config.category === "health";
+  const usesFullSiteList = isBangladeshCategory || isHealthCategory;
+  const maxSites = usesFullSiteList ? config.sites.length : isAllCategory ? 8 : 6;
+  const chunkSize = isAllCategory ? 4 : usesFullSiteList ? 4 : 3;
+  const perSiteTimeout = isAllCategory ? 7000 : usesFullSiteList ? 8000 : 6000;
   const targetPerSite = Math.max(
     1,
     Math.ceil(pageSize / Math.min(config.sites.length, maxSites))
@@ -1120,14 +1185,14 @@ async function scrapeDirectSites(config: DirectBundleConfig, pageSize: number): 
       }
     });
 
-    if (articles.length >= pageSize) {
+    if (!usesFullSiteList && articles.length >= pageSize) {
       console.log(`[scrape-direct] 🎯 Reached ${articles.length} articles, stopping early`);
       break;
     }
   }
 
   console.log(`[scrape-direct] 📊 Total scraped: ${articles.length} recent articles from ${config.category} sites`);
-  return articles.slice(0, pageSize);
+  return usesFullSiteList ? articles : articles.slice(0, pageSize);
 }
 
 function getDirectBundleProviders(category: CategoryType): ProviderConfig[] {
