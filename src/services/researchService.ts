@@ -436,12 +436,9 @@ async function fetchClientSideFallback(options: ResearchQueryOptions = {}): Prom
   }
 
   if (source === "all" || source === "semantic_scholar") {
-    tasks.push(
-      fetchSemanticScholarClientSide(limit, options.query, since).catch((error) => {
-        console.warn("[research] Semantic Scholar fallback failed", error);
-        return [];
-      })
-    );
+    // Semantic Scholar requires API key and doesn't allow CORS from browser
+    // Skip client-side fallback for Semantic Scholar
+    console.warn("[research] Semantic Scholar requires server-side API calls (CORS blocked)");
   }
 
   if (source === "all" || source === "hugging_face") {

@@ -390,103 +390,120 @@ function ensureAbsolutePdfUrl(pdf) {
 
 async function fetchOpenReviewPapers({ limit, since }) {
   const base = OPENREVIEW_API_BASE.replace(/\/$/, "");
-  // Increase papers per conference to get more results
-  const perConferenceLimit = Math.max(10, Math.ceil(limit / Math.min(OPENREVIEW_CONFERENCES.length, 10)));
+  // Limit to fewer papers per conference to avoid timeout
+  const perConferenceLimit = Math.min(5, Math.max(3, Math.ceil(limit / Math.min(OPENREVIEW_CONFERENCES.length, 15))));
   const results = [];
   
-  console.log(`[openreview] Fetching papers from ${OPENREVIEW_CONFERENCES.length} conferences, limit per conference: ${perConferenceLimit}`);
+  // Only fetch from top 15 conferences to avoid timeout
+  const topConferences = OPENREVIEW_CONFERENCES.slice(0, 15);
+  console.log(`[openreview] Fetching papers from ${topConferences.length} conferences, limit per conference: ${perConferenceLimit}`);
 
-  for (const conf of OPENREVIEW_CONFERENCES) {
-    // Use content.venue parameter which is more reliable
-    const params = new URLSearchParams({
-      "content.venue": conf.venue,
-      limit: String(Math.min(perConferenceLimit, HARD_LIMIT)),
-      sort: "tmdate",
+  // Fetch in batches of 5 to avoid overwhelming the API
+  const batchSize = 5;
+  for (let i = 0; i < topConferences.length; i += batchSize) {
+    const batch = topConferences.slice(i, i + batchSize);
+    const batchPromises = batch.map(async (conf) => {
+      // Use content.venue parameter which is more reliable
+      const params = new URLSearchParams({
+        "content.venue": conf.venue,
+        limit: String(Math.min(perConferenceLimit, HARD_LIMIT)),
+        sort: "tmdate",
+      });
+
+      try {
+        const url = `${base}/notes?${params.toString()}`;
+        console.log(`[openreview] Fetching from ${conf.name}: ${url}`);
+        
+        // Add timeout to prevent hanging
+        const controller = new AbortController();
+        const timeoutId = setTimeout(() => controller.abort(), 5000); // 5 second timeout per request
+        
+        const response = await fetch(url, {
+          method: "GET",
+          headers: {
+            Accept: "application/json",
+            "User-Agent": "NewsFlow-AI-Research/1.0 (https://newsflow.ai)",
+          },
+          signal: controller.signal,
+        });
+
+        clearTimeout(timeoutId);
+
+        if (!response.ok) {
+          console.warn(`[openreview] ${conf.name} request failed with status ${response.status}`);
+          return [];
+        }
+
+        const payload = await response.json();
+        const notes = Array.isArray(payload?.notes) ? payload.notes : [];
+        
+        console.log(`[openreview] Fetched ${notes.length} papers from ${conf.name}`);
+
+        return notes.map((note) => {
+          const content = note?.content || {};
+          
+          // Handle both old and new API formats for content fields
+          const getContentValue = (field) => {
+            if (!field) return null;
+            return field?.value !== undefined ? field.value : field;
+          };
+          
+          const title = getContentValue(content.title) || "OpenReview submission";
+          const abstract = getContentValue(content.abstract) || null;
+          const authorsField = getContentValue(content.authors);
+          const authors = Array.isArray(authorsField) 
+            ? authorsField.filter((author) => typeof author === "string")
+            : [];
+          const keywordsField = getContentValue(content.keywords);
+          const keywords = Array.isArray(keywordsField)
+            ? keywordsField.filter((kw) => typeof kw === "string")
+            : [];
+          
+          // Use mdate (modified date) for sorting, fallback to cdate (creation date)
+          const publishedAt = typeof note?.mdate === "number" 
+            ? new Date(note.mdate).toISOString()
+            : typeof note?.cdate === "number"
+            ? new Date(note.cdate).toISOString() 
+            : new Date().toISOString();
+          
+          const forumId = note?.forum || note?.id;
+          const pdfField = getContentValue(content.pdf);
+          const pdfUrl = pdfField 
+            ? (pdfField.startsWith("/") ? `https://openreview.net${pdfField}` : pdfField)
+            : null;
+
+          return {
+            id: note?.id || forumId || Math.random().toString(36).slice(2),
+            title,
+            summary: abstract,
+            authors,
+            publishedAt,
+            url: forumId ? `https://openreview.net/forum?id=${forumId}` : "",
+            source: "openreview",
+            sourceName: "OpenReview",
+            venue: getContentValue(content.venue) || conf.name,
+            citations: null,
+            tags: keywords,
+            pdfUrl,
+            primaryCategory: keywords?.[0] ?? null,
+          };
+        });
+      } catch (error) {
+        console.error(`[openreview] Error fetching ${conf.name}:`, error.message);
+        return [];
+      }
     });
 
-    try {
-      const url = `${base}/notes?${params.toString()}`;
-      console.log(`[openreview] Fetching from ${conf.name}: ${url}`);
-      
-      const response = await fetch(url, {
-        method: "GET",
-        headers: {
-          Accept: "application/json",
-          "User-Agent": "NewsFlow-AI-Research/1.0 (https://newsflow.ai)",
-        },
-      });
-
-      if (!response.ok) {
-        console.warn(`[openreview] ${conf.name} request failed with status ${response.status}`);
-        continue;
+    // Wait for current batch to complete before starting next batch
+    const batchResults = await Promise.allSettled(batchPromises);
+    batchResults.forEach((result) => {
+      if (result.status === 'fulfilled' && Array.isArray(result.value)) {
+        results.push(...result.value);
       }
-
-      const payload = await response.json();
-      const notes = Array.isArray(payload?.notes) ? payload.notes : [];
-      
-      console.log(`[openreview] Fetched ${notes.length} papers from ${conf.name}`);
-
-      notes.forEach((note) => {
-        const content = note?.content || {};
-        
-        // Handle both old and new API formats for content fields
-        const getContentValue = (field) => {
-          if (!field) return null;
-          return field?.value !== undefined ? field.value : field;
-        };
-        
-        const title = getContentValue(content.title) || "OpenReview submission";
-        const abstract = getContentValue(content.abstract) || null;
-        const authorsField = getContentValue(content.authors);
-        const authors = Array.isArray(authorsField) 
-          ? authorsField.filter((author) => typeof author === "string")
-          : [];
-        const keywordsField = getContentValue(content.keywords);
-        const keywords = Array.isArray(keywordsField)
-          ? keywordsField.filter((kw) => typeof kw === "string")
-          : [];
-        
-        // Use mdate (modified date) for sorting, fallback to cdate (creation date)
-        const publishedAt = typeof note?.mdate === "number" 
-          ? new Date(note.mdate).toISOString()
-          : typeof note?.cdate === "number"
-          ? new Date(note.cdate).toISOString() 
-          : new Date().toISOString();
-        
-        const forumId = note?.forum || note?.id;
-        const pdfField = getContentValue(content.pdf);
-        const pdfUrl = pdfField 
-          ? (pdfField.startsWith("/") ? `https://openreview.net${pdfField}` : pdfField)
-          : null;
-
-        results.push({
-          id: note?.id || forumId || Math.random().toString(36).slice(2),
-          title,
-          summary: abstract,
-          authors,
-          publishedAt,
-          url: forumId ? `https://openreview.net/forum?id=${forumId}` : "",
-          source: "openreview",
-          sourceName: "OpenReview",
-          venue: getContentValue(content.venue) || conf.name,
-          citations: null,
-          tags: keywords,
-          pdfUrl,
-          primaryCategory: keywords?.[0] ?? null,
-        });
-      });
-      
-      // Wait between requests to avoid rate limiting
-      await new Promise(resolve => setTimeout(resolve, 1000));
-      
-    } catch (error) {
-      console.warn(`[openreview] Failed to fetch conference ${conf.name}:`, error.message || error);
-    }
+    });
   }
 
-  const filtered = results.filter((paper) => withinWindow(paper.publishedAt, since));
-  console.log(`[openreview] Total papers fetched: ${results.length}, after date filter: ${filtered.length}`);
-  return filtered;
+  return results.filter((paper) => withinWindow(paper.publishedAt, since));
 }
 
 export default async function handler(req, res) {
