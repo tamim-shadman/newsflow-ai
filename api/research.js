@@ -9,7 +9,22 @@ const SEMANTIC_SCHOLAR_API_BASE = process.env.SEMANTIC_SCHOLAR_API_BASE || "http
 const SEMANTIC_SCHOLAR_API_KEY = process.env.SEMANTIC_SCHOLAR_API_KEY || "";
 const HUGGING_FACE_PAPERS_API = process.env.HUGGING_FACE_PAPERS_API || "https://huggingface.co/api/daily_papers";
 const OPENREVIEW_API_BASE = process.env.OPENREVIEW_API_BASE || "https://api2.openreview.net";
+
+// Rate limiter for Semantic Scholar API (1 request per second)
+let lastSemanticScholarCall = 0;
+const SEMANTIC_SCHOLAR_RATE_LIMIT_MS = 1000; // 1 second between requests
+
+async function waitForSemanticScholarRateLimit() {
+  const now = Date.now();
+  const timeSinceLastCall = now - lastSemanticScholarCall;
+  if (timeSinceLastCall < SEMANTIC_SCHOLAR_RATE_LIMIT_MS) {
+    const waitTime = SEMANTIC_SCHOLAR_RATE_LIMIT_MS - timeSinceLastCall;
+    await new Promise(resolve => setTimeout(resolve, waitTime));
+  }
+  lastSemanticScholarCall = Date.now();
+}
 const OPENREVIEW_CONFERENCES = [
+  // Major ML/AI Conferences
   {
     venue: "NeurIPS.cc/2024/Conference",
     name: "NeurIPS 2024",
@@ -25,6 +40,100 @@ const OPENREVIEW_CONFERENCES = [
   {
     venue: "ICLR.cc/2025/Conference",
     name: "ICLR 2025",
+  },
+  {
+    venue: "NeurIPS.cc/2023/Conference",
+    name: "NeurIPS 2023",
+  },
+  {
+    venue: "ICML.cc/2023/Conference",
+    name: "ICML 2023",
+  },
+  {
+    venue: "ICLR.cc/2023/Conference",
+    name: "ICLR 2023",
+  },
+  // Computer Vision
+  {
+    venue: "CVPR.cc/2024/Conference",
+    name: "CVPR 2024",
+  },
+  {
+    venue: "CVPR.cc/2023/Conference",
+    name: "CVPR 2023",
+  },
+  {
+    venue: "ICCV.cc/2023/Conference",
+    name: "ICCV 2023",
+  },
+  {
+    venue: "ECCV.cc/2024/Conference",
+    name: "ECCV 2024",
+  },
+  // Natural Language Processing
+  {
+    venue: "ACL.org/2024/Conference",
+    name: "ACL 2024",
+  },
+  {
+    venue: "EMNLP.org/2024/Conference",
+    name: "EMNLP 2024",
+  },
+  {
+    venue: "NAACL.org/2024/Conference",
+    name: "NAACL 2024",
+  },
+  {
+    venue: "COLING.org/2024/Conference",
+    name: "COLING 2024",
+  },
+  // Robotics & AI
+  {
+    venue: "CoRL.org/2024/Conference",
+    name: "CoRL 2024",
+  },
+  {
+    venue: "IROS.org/2024/Conference",
+    name: "IROS 2024",
+  },
+  {
+    venue: "ICRA.org/2024/Conference",
+    name: "ICRA 2024",
+  },
+  // AI Safety & Alignment
+  {
+    venue: "SafeAI.org/2024/Workshop",
+    name: "SafeAI 2024",
+  },
+  // Workshops and Special Tracks
+  {
+    venue: "NeurIPS.cc/2024/Workshop",
+    name: "NeurIPS 2024 Workshops",
+  },
+  {
+    venue: "ICLR.cc/2024/Workshop",
+    name: "ICLR 2024 Workshops",
+  },
+  {
+    venue: "ICML.cc/2024/Workshop",
+    name: "ICML 2024 Workshops",
+  },
+  // Additional AI/ML Venues
+  {
+    venue: "AAAI.org/2024/Conference",
+    name: "AAAI 2024",
+  },
+  {
+    venue: "IJCAI.org/2024/Conference",
+    name: "IJCAI 2024",
+  },
+  {
+    venue: "AISTATS.org/2024/Conference",
+    name: "AISTATS 2024",
+  },
+  {
+    venue: "UAI.org/2024/Conference",
+    name: "UAI 2024",
   },
 ];
 
@@ -164,6 +273,9 @@ async function fetchArxivPapers({ limit, query, since }) {
 }
 
 async function fetchSemanticScholarPapers({ limit, query, since }) {
+  // Wait for rate limit before making request (1 req/sec)
+  await waitForSemanticScholarRateLimit();
+
   const base = SEMANTIC_SCHOLAR_API_BASE.replace(/\/$/, "");
   const params = new URLSearchParams({
     query:
@@ -278,7 +390,8 @@ function ensureAbsolutePdfUrl(pdf) {
 
 async function fetchOpenReviewPapers({ limit, since }) {
   const base = OPENREVIEW_API_BASE.replace(/\/$/, "");
-  const perConferenceLimit = Math.max(1, Math.ceil(limit / OPENREVIEW_CONFERENCES.length));
+  // Increase papers per conference to get more results
+  const perConferenceLimit = Math.max(10, Math.ceil(limit / Math.min(OPENREVIEW_CONFERENCES.length, 10)));
   const results = [];
   
   console.log(`[openreview] Fetching papers from ${OPENREVIEW_CONFERENCES.length} conferences, limit per conference: ${perConferenceLimit}`);
@@ -413,9 +526,8 @@ export default async function handler(req, res) {
   if (source === "all" || source === "hugging_face") {
     tasks.push(fetchHuggingFacePapers({ limit, query, since }));
   }
-  // Disabled OpenReview in development due to CORS
-  // Only works in production (Vercel serverless)
-  if (source === "openreview" && process.env.NODE_ENV === "production") {
+  // OpenReview enabled - now with expanded conference list
+  if (source === "all" || source === "openreview") {
     tasks.push(fetchOpenReviewPapers({ limit, query, since }));
   }
 
