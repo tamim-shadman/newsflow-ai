@@ -8,7 +8,6 @@ const ARXIV_API_BASE = process.env.ARXIV_API_BASE || "https://export.arxiv.org/a
 const SEMANTIC_SCHOLAR_API_BASE = process.env.SEMANTIC_SCHOLAR_API_BASE || "https://api.semanticscholar.org/graph/v1";
 const SEMANTIC_SCHOLAR_API_KEY = process.env.SEMANTIC_SCHOLAR_API_KEY || "";
 const HUGGING_FACE_PAPERS_API = process.env.HUGGING_FACE_PAPERS_API || "https://huggingface.co/api/daily_papers";
-const OPENREVIEW_API_BASE = process.env.OPENREVIEW_API_BASE || "https://api2.openreview.net";
 
 // Rate limiter for Semantic Scholar API (1 request per second)
 let lastSemanticScholarCall = 0;
@@ -23,119 +22,6 @@ async function waitForSemanticScholarRateLimit() {
   }
   lastSemanticScholarCall = Date.now();
 }
-const OPENREVIEW_CONFERENCES = [
-  // Major ML/AI Conferences
-  {
-    venue: "NeurIPS.cc/2024/Conference",
-    name: "NeurIPS 2024",
-  },
-  {
-    venue: "ICLR.cc/2024/Conference",
-    name: "ICLR 2024",
-  },
-  {
-    venue: "ICML.cc/2024/Conference",
-    name: "ICML 2024",
-  },
-  {
-    venue: "ICLR.cc/2025/Conference",
-    name: "ICLR 2025",
-  },
-  {
-    venue: "NeurIPS.cc/2023/Conference",
-    name: "NeurIPS 2023",
-  },
-  {
-    venue: "ICML.cc/2023/Conference",
-    name: "ICML 2023",
-  },
-  {
-    venue: "ICLR.cc/2023/Conference",
-    name: "ICLR 2023",
-  },
-  // Computer Vision
-  {
-    venue: "CVPR.cc/2024/Conference",
-    name: "CVPR 2024",
-  },
-  {
-    venue: "CVPR.cc/2023/Conference",
-    name: "CVPR 2023",
-  },
-  {
-    venue: "ICCV.cc/2023/Conference",
-    name: "ICCV 2023",
-  },
-  {
-    venue: "ECCV.cc/2024/Conference",
-    name: "ECCV 2024",
-  },
-  // Natural Language Processing
-  {
-    venue: "ACL.org/2024/Conference",
-    name: "ACL 2024",
-  },
-  {
-    venue: "EMNLP.org/2024/Conference",
-    name: "EMNLP 2024",
-  },
-  {
-    venue: "NAACL.org/2024/Conference",
-    name: "NAACL 2024",
-  },
-  {
-    venue: "COLING.org/2024/Conference",
-    name: "COLING 2024",
-  },
-  // Robotics & AI
-  {
-    venue: "CoRL.org/2024/Conference",
-    name: "CoRL 2024",
-  },
-  {
-    venue: "IROS.org/2024/Conference",
-    name: "IROS 2024",
-  },
-  {
-    venue: "ICRA.org/2024/Conference",
-    name: "ICRA 2024",
-  },
-  // AI Safety & Alignment
-  {
-    venue: "SafeAI.org/2024/Workshop",
-    name: "SafeAI 2024",
-  },
-  // Workshops and Special Tracks
-  {
-    venue: "NeurIPS.cc/2024/Workshop",
-    name: "NeurIPS 2024 Workshops",
-  },
-  {
-    venue: "ICLR.cc/2024/Workshop",
-    name: "ICLR 2024 Workshops",
-  },
-  {
-    venue: "ICML.cc/2024/Workshop",
-    name: "ICML 2024 Workshops",
-  },
-  // Additional AI/ML Venues
-  {
-    venue: "AAAI.org/2024/Conference",
-    name: "AAAI 2024",
-  },
-  {
-    venue: "IJCAI.org/2024/Conference",
-    name: "IJCAI 2024",
-  },
-  {
-    venue: "AISTATS.org/2024/Conference",
-    name: "AISTATS 2024",
-  },
-  {
-    venue: "UAI.org/2024/Conference",
-    name: "UAI 2024",
-  },
-];
 
 const parser = new XMLParser({
   ignoreAttributes: false,
@@ -381,131 +267,6 @@ async function fetchHuggingFacePapers({ limit, since }) {
     .filter((paper) => withinWindow(paper.publishedAt, since));
 }
 
-function ensureAbsolutePdfUrl(pdf) {
-  if (!pdf) return null;
-  if (pdf.startsWith("http")) return pdf;
-  if (pdf.startsWith("/")) return `https://openreview.net${pdf}`;
-  return pdf;
-}
-
-async function fetchOpenReviewPapers({ limit, since }) {
-  const base = OPENREVIEW_API_BASE.replace(/\/$/, "");
-  // Limit to fewer papers per conference to avoid timeout
-  const perConferenceLimit = Math.min(5, Math.max(3, Math.ceil(limit / Math.min(OPENREVIEW_CONFERENCES.length, 15))));
-  const results = [];
-  
-  // Only fetch from top 15 conferences to avoid timeout
-  const topConferences = OPENREVIEW_CONFERENCES.slice(0, 15);
-  console.log(`[openreview] Fetching papers from ${topConferences.length} conferences, limit per conference: ${perConferenceLimit}`);
-
-  // Fetch in batches of 5 to avoid overwhelming the API
-  const batchSize = 5;
-  for (let i = 0; i < topConferences.length; i += batchSize) {
-    const batch = topConferences.slice(i, i + batchSize);
-    const batchPromises = batch.map(async (conf) => {
-      // Use content.venue parameter which is more reliable
-      const params = new URLSearchParams({
-        "content.venue": conf.venue,
-        limit: String(Math.min(perConferenceLimit, HARD_LIMIT)),
-        sort: "tmdate",
-      });
-
-      try {
-        const url = `${base}/notes?${params.toString()}`;
-        console.log(`[openreview] Fetching from ${conf.name}: ${url}`);
-        
-        // Add timeout to prevent hanging
-        const controller = new AbortController();
-        const timeoutId = setTimeout(() => controller.abort(), 5000); // 5 second timeout per request
-        
-        const response = await fetch(url, {
-          method: "GET",
-          headers: {
-            Accept: "application/json",
-            "User-Agent": "NewsFlow-AI-Research/1.0 (https://newsflow.ai)",
-          },
-          signal: controller.signal,
-        });
-
-        clearTimeout(timeoutId);
-
-        if (!response.ok) {
-          console.warn(`[openreview] ${conf.name} request failed with status ${response.status}`);
-          return [];
-        }
-
-        const payload = await response.json();
-        const notes = Array.isArray(payload?.notes) ? payload.notes : [];
-        
-        console.log(`[openreview] Fetched ${notes.length} papers from ${conf.name}`);
-
-        return notes.map((note) => {
-          const content = note?.content || {};
-          
-          // Handle both old and new API formats for content fields
-          const getContentValue = (field) => {
-            if (!field) return null;
-            return field?.value !== undefined ? field.value : field;
-          };
-          
-          const title = getContentValue(content.title) || "OpenReview submission";
-          const abstract = getContentValue(content.abstract) || null;
-          const authorsField = getContentValue(content.authors);
-          const authors = Array.isArray(authorsField) 
-            ? authorsField.filter((author) => typeof author === "string")
-            : [];
-          const keywordsField = getContentValue(content.keywords);
-          const keywords = Array.isArray(keywordsField)
-            ? keywordsField.filter((kw) => typeof kw === "string")
-            : [];
-          
-          // Use mdate (modified date) for sorting, fallback to cdate (creation date)
-          const publishedAt = typeof note?.mdate === "number" 
-            ? new Date(note.mdate).toISOString()
-            : typeof note?.cdate === "number"
-            ? new Date(note.cdate).toISOString() 
-            : new Date().toISOString();
-          
-          const forumId = note?.forum || note?.id;
-          const pdfField = getContentValue(content.pdf);
-          const pdfUrl = pdfField 
-            ? (pdfField.startsWith("/") ? `https://openreview.net${pdfField}` : pdfField)
-            : null;
-
-          return {
-            id: note?.id || forumId || Math.random().toString(36).slice(2),
-            title,
-            summary: abstract,
-            authors,
-            publishedAt,
-            url: forumId ? `https://openreview.net/forum?id=${forumId}` : "",
-            source: "openreview",
-            sourceName: "OpenReview",
-            venue: getContentValue(content.venue) || conf.name,
-            citations: null,
-            tags: keywords,
-            pdfUrl,
-            primaryCategory: keywords?.[0] ?? null,
-          };
-        });
-      } catch (error) {
-        console.error(`[openreview] Error fetching ${conf.name}:`, error.message);
-        return [];
-      }
-    });
-
-    // Wait for current batch to complete before starting next batch
-    const batchResults = await Promise.allSettled(batchPromises);
-    batchResults.forEach((result) => {
-      if (result.status === 'fulfilled' && Array.isArray(result.value)) {
-        results.push(...result.value);
-      }
-    });
-  }
-
-  return results.filter((paper) => withinWindow(paper.publishedAt, since));
-}
-
 export default async function handler(req, res) {
   res.setHeader("Access-Control-Allow-Credentials", "true");
   res.setHeader("Access-Control-Allow-Origin", "*");
@@ -542,10 +303,6 @@ export default async function handler(req, res) {
   }
   if (source === "all" || source === "hugging_face") {
     tasks.push(fetchHuggingFacePapers({ limit, query, since }));
-  }
-  // OpenReview enabled - now with expanded conference list
-  if (source === "all" || source === "openreview") {
-    tasks.push(fetchOpenReviewPapers({ limit, query, since }));
   }
 
   try {

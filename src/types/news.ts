@@ -78,7 +78,20 @@ export interface CategoryTheme {
   ring: string;
 }
 
-export type ResearchSource = "arxiv" | "semantic_scholar" | "hugging_face" | "openreview";
+export type ResearchSource =
+  | "arxiv"
+  | "semantic_scholar"
+  | "hugging_face"
+  | "core"
+  | "doaj"
+  | "ssrn"
+  | "zenodo"
+  | "openml"
+  | "citeseerx"
+  | "ieee_open_access"
+  | "plos_one"
+  | "openalex"
+  | "europe_pmc";
 
 export interface ResearchPaper {
   id: string;

@@ -50,25 +50,9 @@ type HuggingFacePaper = {
   pdf_url?: string | null;
 };
 
-type OpenReviewContent = {
-  title?: string | null;
-  abstract?: string | null;
-  authors?: Array<string | null | undefined>;
-  keywords?: Array<string | null | undefined>;
-  venue?: string | null;
-  pdf?: string | null;
-};
-
-type OpenReviewNote = {
-  id?: string;
-  forum?: string;
-  cdate?: number;
-  content?: OpenReviewContent;
-};
-
 const ONE_DAY_MS = 24 * 60 * 60 * 1000;
 const DEFAULT_LIMIT = 60;
-const DEFAULT_WINDOW_DAYS = 365;
+const DEFAULT_WINDOW_DAYS = 1460; // 4 years
 const HARD_CAP = 90;
 
 const CLIENT_ARXIV_API_BASE = import.meta.env.VITE_ARXIV_API_BASE?.trim() || "https://export.arxiv.org/api/query";
@@ -77,9 +61,6 @@ const CLIENT_SEMANTIC_SCHOLAR_API_BASE =
 const CLIENT_SEMANTIC_SCHOLAR_API_KEY = import.meta.env.VITE_SEMANTIC_SCHOLAR_API_KEY?.trim() || "";
 const CLIENT_HF_PAPERS_API =
   import.meta.env.VITE_HUGGING_FACE_PAPERS_API?.trim() || "https://huggingface.co/api/daily_papers";
-const CLIENT_OPENREVIEW_API_BASE =
-  import.meta.env.VITE_OPENREVIEW_API_BASE?.trim() || "https://api.openreview.net";
-const OPENREVIEW_VENUES = ["NeurIPS 2024", "ICLR 2025", "ICML 2024", "ACL 2024"];
 
 function toISODate(value?: string | null): string | null {
   if (!value) return null;
@@ -143,13 +124,6 @@ function sortPapers(papers: ResearchPaper[]): ResearchPaper[] {
     }
     return bTime - aTime;
   });
-}
-
-function ensureOpenReviewPdfUrl(pdf?: string | null): string | null {
-  if (!pdf) return null;
-  if (pdf.startsWith("http")) return pdf;
-  if (pdf.startsWith("/")) return `https://openreview.net${pdf}`;
-  return pdf;
 }
 
 async function fetchArxivClientSide(limit: number, query: string | undefined, since: Date): Promise<ResearchPaper[]> {
@@ -350,74 +324,6 @@ async function fetchHuggingFaceClientSide(limit: number, since: Date): Promise<R
     .filter((paper) => withinWindow(paper.publishedAt, since));
 }
 
-async function fetchOpenReviewClientSide(limit: number, since: Date): Promise<ResearchPaper[]> {
-  const base = CLIENT_OPENREVIEW_API_BASE.replace(/\/$/, "");
-  const perVenueLimit = Math.max(1, Math.ceil(limit / OPENREVIEW_VENUES.length));
-  const collected: ResearchPaper[] = [];
-
-  for (const venue of OPENREVIEW_VENUES) {
-    const params = new URLSearchParams({
-      "content.venue": venue,
-      sort: "tmdate:desc",
-      limit: String(Math.min(perVenueLimit, HARD_CAP)),
-      details: "replyCount",
-    });
-
-    try {
-      const response = await fetch(`${base}/notes?${params.toString()}`, {
-        method: "GET",
-        headers: {
-          Accept: "application/json",
-        },
-      });
-
-      if (!response.ok) {
-        console.warn(`[research] OpenReview request for ${venue} failed (${response.status})`);
-        continue;
-      }
-
-      const payload = await response.json();
-      const notes: OpenReviewNote[] = Array.isArray(payload?.notes)
-        ? (payload.notes as OpenReviewNote[])
-        : Array.isArray(payload)
-          ? (payload as OpenReviewNote[])
-          : [];
-
-      notes.forEach((note) => {
-        const content = note?.content ?? {};
-        const rawAuthors = Array.isArray(content.authors)
-          ? content.authors.filter((author): author is string => typeof author === "string" && author.trim().length > 0)
-          : [];
-        const keywords = Array.isArray(content.keywords)
-          ? content.keywords.filter((kw): kw is string => typeof kw === "string" && kw.trim().length > 0)
-          : [];
-        const publishedAt = typeof note?.cdate === "number" ? new Date(note.cdate).toISOString() : null;
-        const identifier = note?.id || note?.forum;
-
-        collected.push({
-          id: identifier ?? Math.random().toString(36).slice(2),
-          title: content.title ?? "OpenReview submission",
-          summary: content.abstract ?? null,
-          authors: normalizeAuthors(rawAuthors),
-          publishedAt: publishedAt ?? new Date().toISOString(),
-          url: identifier ? `https://openreview.net/forum?id=${identifier}` : "",
-          source: "openreview",
-          sourceName: "OpenReview",
-          venue: content.venue ?? venue,
-          citations: null,
-          tags: keywords,
-          pdfUrl: ensureOpenReviewPdfUrl(content.pdf ?? null),
-          primaryCategory: keywords[0] ?? null,
-        });
-      });
-    } catch (error) {
-      console.warn(`[research] OpenReview fetch error for ${venue}`, error);
-    }
-  }
-
-  return collected.filter((paper) => withinWindow(paper.publishedAt, since));
-}
-
 async function fetchClientSideFallback(options: ResearchQueryOptions = {}): Promise<ResearchPaper[]> {
   const limit = Math.max(1, Math.min(options.limit ?? DEFAULT_LIMIT, HARD_CAP));
   const windowDays = Math.max(30, Math.min(options.windowDays ?? DEFAULT_WINDOW_DAYS, 730));
@@ -450,14 +356,6 @@ async function fetchClientSideFallback(options: ResearchQueryOptions = {}): Prom
     );
   }
 
-  if (source === "all" || source === "openreview") {
-    tasks.push(
-      fetchOpenReviewClientSide(limit, since).catch((error) => {
-        console.warn("[research] OpenReview fallback failed", error);
-        return [];
-      })
-    );
-  }
 
   const results = await Promise.all(tasks);
   const merged = results.flat();

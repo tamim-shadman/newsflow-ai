@@ -4,17 +4,26 @@ import { useNavigate } from "react-router-dom";
 import {
   ArrowLeft,
   ArrowUpRight,
+  Atom,
   BookOpen,
+  BookMarked,
+  CircuitBoard,
   Clock,
+  FileSearch,
   FileText,
   Filter,
   GraduationCap,
+  Globe,
+  Globe2,
   LayoutGrid,
+  Layers,
   Library,
   Loader2,
-  MessageSquare,
+  Network,
   RefreshCcw,
+  ScrollText,
   Search,
+  FlaskConical,
   Sparkles,
   Star,
   UserRound,
@@ -29,7 +38,21 @@ import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover
 import { fetchResearchPapers, groupPapersBySource } from "@/services/researchService";
 import type { ResearchPaper, ResearchSource } from "@/types/news";
 
-const SOURCE_ORDER: ResearchSource[] = ["arxiv", "semantic_scholar", "hugging_face", "openreview"];
+const SOURCE_ORDER: ResearchSource[] = [
+  "arxiv",
+  "semantic_scholar",
+  "hugging_face",
+  "core",
+  "doaj",
+  "zenodo",
+  "plos_one",
+  "ssrn",
+  "openalex",
+  "europe_pmc",
+  "ieee_open_access",
+  "openml",
+  "citeseerx",
+];
 
 const SOURCE_DETAILS: Record<ResearchSource, { label: string; accent: string; stroke: string; icon: LucideIcon }> = {
   arxiv: {
@@ -50,11 +73,65 @@ const SOURCE_DETAILS: Record<ResearchSource, { label: string; accent: string; st
     stroke: "border-amber-400/50",
     icon: Sparkles,
   },
-  openreview: {
-    label: "OpenReview",
-    accent: "from-emerald-500 via-teal-500 to-cyan-500",
-    stroke: "border-emerald-400/50",
-    icon: MessageSquare,
+  core: {
+    label: "CORE",
+    accent: "from-violet-500 via-purple-500 to-indigo-500",
+    stroke: "border-violet-400/50",
+    icon: Layers,
+  },
+  doaj: {
+    label: "DOAJ",
+    accent: "from-amber-400 via-orange-500 to-yellow-400",
+    stroke: "border-amber-400/60",
+    icon: BookMarked,
+  },
+  zenodo: {
+    label: "Zenodo",
+    accent: "from-cyan-500 via-sky-500 to-blue-500",
+    stroke: "border-cyan-400/60",
+    icon: Atom,
+  },
+  plos_one: {
+    label: "PLOS ONE",
+    accent: "from-rose-400 via-pink-500 to-purple-500",
+    stroke: "border-rose-400/60",
+    icon: FlaskConical,
+  },
+  ssrn: {
+    label: "SSRN CSRN",
+    accent: "from-slate-500 via-blue-500 to-cyan-400",
+    stroke: "border-slate-400/60",
+    icon: ScrollText,
+  },
+  openalex: {
+    label: "OpenAlex",
+    accent: "from-emerald-500 via-cyan-500 to-blue-500",
+    stroke: "border-emerald-400/60",
+    icon: Globe,
+  },
+  europe_pmc: {
+    label: "Europe PMC",
+    accent: "from-sky-500 via-indigo-500 to-blue-600",
+    stroke: "border-sky-400/60",
+    icon: Globe2,
+  },
+  ieee_open_access: {
+    label: "IEEE Open Access",
+    accent: "from-blue-600 via-cyan-500 to-emerald-400",
+    stroke: "border-blue-400/60",
+    icon: CircuitBoard,
+  },
+  openml: {
+    label: "OpenML",
+    accent: "from-lime-500 via-emerald-500 to-teal-500",
+    stroke: "border-lime-400/60",
+    icon: Network,
+  },
+  citeseerx: {
+    label: "CiteSeerX",
+    accent: "from-slate-500 via-indigo-500 to-slate-400",
+    stroke: "border-slate-400/60",
+    icon: FileSearch,
   },
 };
 
@@ -700,7 +777,12 @@ function Research() {
     refetch,
   } = useQuery({
     queryKey: ["research-papers", { source: sourceFilter }],
-    queryFn: () => fetchResearchPapers({ limit: 60, source: sourceFilter === "trending" ? "all" : sourceFilter }),
+    queryFn: () =>
+      fetchResearchPapers({
+        limit: 90,
+        source: sourceFilter === "trending" ? "all" : sourceFilter,
+        windowDays: 1460,
+      }),
     staleTime: 60 * 60 * 1000,
     refetchOnWindowFocus: false,
   });
@@ -823,10 +905,10 @@ function Research() {
               AI Research Reader
             </div>
             <h1 className="text-3xl font-bold leading-tight text-slate-50 sm:text-4xl">
-              Curated AI & ML research from the last 12 months
+              Curated AI & ML research from the last 4 years
             </h1>
             <p className="max-w-3xl text-base leading-[1.7] text-slate-400">
-              Deep-dive into arXiv preprints, Semantic Scholar publications, Hugging Face trending papers, and OpenReview submissions. The layout focuses on reading comfort with typography tuned for long-form abstracts.
+              Deep-dive into arXiv and Semantic Scholar releases alongside CORE, DOAJ, Zenodo, PLOS ONE, OpenAlex, Hugging Face, IEEE Open Access, and more — all sourced from the last 4 years. The layout focuses on reading comfort with typography tuned for long-form abstracts.
             </p>
             {papers.length > 0 && (
               <p className="text-sm text-slate-500">
@@ -914,7 +996,7 @@ function Research() {
               <div>
                 <h2 className="text-xl font-semibold text-slate-100">Spotlight by source</h2>
                 <p className="text-sm text-slate-400">
-                  Compare leading venues across arXiv, Semantic Scholar, Hugging Face, and OpenReview.
+                  Compare leading venues across arXiv, Semantic Scholar, Hugging Face, and CORE.
                 </p>
               </div>
               <span className="text-xs uppercase tracking-[0.35em] text-slate-500">
