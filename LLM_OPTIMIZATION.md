@@ -46,7 +46,7 @@ Gemini: 50 requests/hour
 
 ### 1. Groq (Primary) ✅ Already Have
 ```
-GROQ_API_KEY=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
+GROQ_API_KEY=your_groq_api_key_here
 ```
 
 ### 2. Gemini (Fallback - FREE)
@@ -106,7 +106,7 @@ Request N: "Summarize Tech News" → Groq API → Refresh Cache
 
 ### Add to Vercel Environment Variables:
 ```bash
-GROQ_API_KEY=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
+GROQ_API_KEY=your_groq_api_key_here
 GEMINI_API_KEY=your_gemini_key
 OPENROUTER_API_KEY=your_openrouter_key
 ```

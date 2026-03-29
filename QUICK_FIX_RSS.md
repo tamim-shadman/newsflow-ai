@@ -15,7 +15,7 @@ RSS feeds for Bangladesh and Health categories are failing because the RSS2JSON 
 Create a `.env` file in your project root:
 
 ```bash
-# h:\OneDrive - MSFT\Personal\Work\newsflow-ai\.env
+# /path/to/your/newsflow-ai/.env
 
 # RSS2JSON API Key (Free - 10,000 requests/day)
 # Get yours at: https://rss2json.com/
@@ -107,8 +107,8 @@ Just use the app as-is. It will automatically show fallback articles when RSS fe
 
 **Check 2: Correct File Location**
 ```
-h:\OneDrive - MSFT\Personal\Work\newsflow-ai\.env  ✅ Correct
-h:\OneDrive - MSFT\Personal\Work\newsflow-ai\src\.env  ❌ Wrong
+/path/to/your/newsflow-ai/.env  ✅ Correct
+/path/to/your/newsflow-ai/src/.env  ❌ Wrong
 ```
 
 **Check 3: No Quotes**
@@ -177,7 +177,7 @@ NOT
 
 ```powershell
 # 1. Navigate to project
-cd "h:\OneDrive - MSFT\Personal\Work\newsflow-ai"
+cd "/path/to/your/newsflow-ai"
 
 # 2. Create .env file (if doesn't exist)
 New-Item -ItemType File -Path ".env" -Force
