@@ -57,14 +57,14 @@ const handleArticleClick = useCallback((url?: string, title?: string) => {
 
 **API Details:**
 - Endpoint: `https://newsdata.io/api/1/news`
-- API Key: `pub_e7edc2b3b7e44a78b891c814f80a776c`
+- API Key: `your_newsdata_api_key_here`
 - Country: `BD` (Bangladesh)
 - Language: English
 
 **Code Added in `newsAggregator.ts`:**
 
 ```typescript
-const NEWSDATA_BD_API_KEY = "pub_e7edc2b3b7e44a78b891c814f80a776c";
+const NEWSDATA_BD_API_KEY = "your_newsdata_api_key_here";
 
 export async function fetchBangladeshNews(pageSize: number = 20): Promise<NewsAPIArticle[]> {
   const cacheKey = `bangladesh_news_${pageSize}`;

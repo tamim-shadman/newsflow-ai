@@ -47,7 +47,7 @@ External APIs (NewsData, Currents, GNews, Guardian, Groq)
 3. Add to Vercel: `NEWSDATA_API_KEY`
 
 ### 5. Groq (You already have this)
-- Key: `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`
+- Key: `your_groq_api_key_here`
 - Add to Vercel: `GROQ_API_KEY`
 
 ## 🚀 Vercel Deployment Steps
@@ -73,7 +73,7 @@ git push origin main
 In Vercel Dashboard → Settings → Environment Variables:
 
 ```
-GROQ_API_KEY=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
+GROQ_API_KEY=your_groq_api_key_here
 GUARDIAN_API_KEY=your_guardian_key
 CURRENTS_API_KEY=your_currents_key
 GNEWS_API_KEY=your_gnews_key

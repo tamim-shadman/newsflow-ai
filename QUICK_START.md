@@ -39,14 +39,14 @@
 
 Already configured:
 ```
-GROQ_API_KEY=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
+GROQ_API_KEY=your_groq_api_key_here
 ```
 
 ## 📝 Your .env File Should Look Like:
 
 ```bash
 # Backend API Keys (Secure - only used in serverless functions)
-GROQ_API_KEY=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
+GROQ_API_KEY=your_groq_api_key_here
 
 # News APIs
 GUARDIAN_API_KEY=test-key-xxxx
