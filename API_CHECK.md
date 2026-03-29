@@ -116,11 +116,11 @@ CRICKET FALLBACK:
 
 ### 1. `.env` File
 ```diff
-- CRICAPI_KEY=a4a4eb75-06c9-47eb-95a7-81f1c338cbe1  # Duplicate removed
+- CRICAPI_KEY=your_cricapi_key_here  # Duplicate removed
 - ENTITYSPORT_KEY=demo  # REMOVED
   
-+ CRICAPI_KEY=a4a4eb75-06c9-47eb-95a7-81f1c338cbe1
-+ RAPIDAPI_KEY=c3f0663f31msh30f5de805cd9691p140b53jsnb8c27b486a99
++ CRICAPI_KEY=your_cricapi_key_here
++ RAPIDAPI_KEY=your_rapidapi_key_here
 ```
 
 ### 2. `liveScores.ts` Service

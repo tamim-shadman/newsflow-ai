@@ -39,7 +39,7 @@ Added **NVIDIA API** (Bielik 11B model) as an additional fallback in the LLM enh
 ### 1. Environment Variable Added
 ```env
 # NVIDIA API (Second fallback): https://build.nvidia.com
-NVIDIA_API_KEY=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
+NVIDIA_API_KEY=your_nvidia_api_key_here
 ```
 
 ### 2. Service Configuration
@@ -130,7 +130,7 @@ graph TD
 **1. `.env`**
 ```diff
 + # NVIDIA API (Second fallback): https://build.nvidia.com (Free tier available)
-+ NVIDIA_API_KEY=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
++ NVIDIA_API_KEY=your_nvidia_api_key_here
 ```
 
 **2. `src/services/llmService.ts`**
